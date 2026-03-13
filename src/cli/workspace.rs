@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Subcommand;
 use comfy_table::{Cell, Table};
 use dialoguer::{Input, MultiSelect};
@@ -134,7 +134,8 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
 
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
-        crate::cmux::create_workspace(name)?;
+        let cmux_id = crate::cmux::create_workspace(name)?;
+        workspace::set_cmux_id(&db, ws_id, &cmux_id)?;
         println!("Workspace '{}' created (branch: {}) — Cmux workspace opened.", name, branch);
     } else {
         println!("Workspace '{}' created (branch: {}).", name, branch);
@@ -199,13 +200,16 @@ fn delete(name: &str) -> Result<()> {
 
 fn switch(name: &str) -> Result<()> {
     let db = open_db()?;
-    workspace::get_by_name(&db, name)?; // validates it exists
+    let ws = workspace::get_by_name(&db, name)?;
 
     let ws_dir = cece_dir()?.join("workspaces").join(name);
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
 
     if cmux_enabled {
-        crate::cmux::select_workspace(name)?;
+        let cmux_id = ws.cmux_workspace_id.as_deref().with_context(|| {
+            format!("workspace '{name}' has no cmux ID — was it created with cmux enabled?")
+        })?;
+        crate::cmux::select_workspace(cmux_id)?;
         println!("Switched to workspace '{}' in Cmux.", name);
     } else {
         println!("{}", ws_dir.display());

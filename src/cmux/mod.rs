@@ -23,42 +23,28 @@ fn send_request(method: &str, params: Value) -> Result<Value> {
     serde_json::from_str(line.trim()).context("invalid JSON response from cmux")
 }
 
-/// Find a cmux workspace ID by matching its title against `name`.
-fn find_workspace_id(name: &str) -> Result<String> {
-    let resp = send_request("workspace.list", json!({}))?;
-    let workspaces = resp
-        .get("result")
-        .and_then(|r| r.get("workspaces"))
-        .and_then(|w| w.as_array())
-        .context("unexpected workspace.list response")?;
-
-    workspaces
-        .iter()
-        .find(|ws| ws.get("title").and_then(|t| t.as_str()) == Some(name))
-        .and_then(|ws| ws.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
-        .with_context(|| format!("no cmux workspace with title '{name}'"))
-}
-
-/// Create a new Cmux workspace with the given title.
-pub fn create_workspace(name: &str) -> Result<()> {
-    send_request("workspace.create", json!({"title": name}))
+/// Create a new Cmux workspace with the given title. Returns the cmux workspace ID.
+pub fn create_workspace(name: &str) -> Result<String> {
+    let resp = send_request("workspace.create", json!({"title": name}))
         .context("workspace.create failed")?;
-    Ok(())
+    resp.get("result")
+        .and_then(|r| r.get("workspace_id"))
+        .and_then(|id| id.as_str())
+        .map(|s| s.to_string())
+        .context("workspace.create returned no workspace_id")
 }
 
-/// Switch the active Cmux workspace by title.
-pub fn select_workspace(name: &str) -> Result<()> {
-    let id = find_workspace_id(name)?;
-    send_request("workspace.select", json!({"workspace_id": id}))
+/// Switch the active Cmux workspace using its stored cmux workspace ID.
+pub fn select_workspace(cmux_id: &str) -> Result<()> {
+    send_request("workspace.select", json!({"workspace_id": cmux_id}))
         .context("workspace.select failed")?;
     Ok(())
 }
 
-/// Open a new split surface in the named workspace and start Claude Code in it.
+/// Open a new split surface in the given cmux workspace and start Claude Code in it.
 /// Returns the cmux surface ID, which should be stored as the agent's session_id.
-pub fn new_agent_tab(workspace: &str, agent_name: &str, working_dir: &Path) -> Result<String> {
-    let ws_id = find_workspace_id(workspace)?;
-    send_request("workspace.select", json!({"workspace_id": ws_id}))?;
+pub fn new_agent_tab(cmux_workspace_id: &str, agent_name: &str, working_dir: &Path) -> Result<String> {
+    send_request("workspace.select", json!({"workspace_id": cmux_workspace_id}))?;
 
     let cmd = format!("cd {} && claude", working_dir.display());
     let resp = send_request("surface.split", json!({"direction": "right", "command": cmd}))

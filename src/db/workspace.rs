@@ -5,6 +5,7 @@ use crate::error::{CeceError, Result};
 pub struct Workspace {
     pub id: i64,
     pub name: String,
+    pub cmux_workspace_id: Option<String>,
     pub created_at: String,
 }
 
@@ -24,14 +25,15 @@ pub fn create(db: &Database, name: &str) -> Result<i64> {
 }
 
 pub fn get_by_name(db: &Database, name: &str) -> Result<Workspace> {
-    let mut stmt = db
-        .conn()
-        .prepare("SELECT id, name, created_at FROM workspaces WHERE name = ?1")?;
+    let mut stmt = db.conn().prepare(
+        "SELECT id, name, cmux_workspace_id, created_at FROM workspaces WHERE name = ?1",
+    )?;
     stmt.query_row([name], |r| {
         Ok(Workspace {
             id: r.get(0)?,
             name: r.get(1)?,
-            created_at: r.get(2)?,
+            cmux_workspace_id: r.get(2)?,
+            created_at: r.get(3)?,
         })
     })
     .map_err(|e| match e {
@@ -41,17 +43,26 @@ pub fn get_by_name(db: &Database, name: &str) -> Result<Workspace> {
 }
 
 pub fn list(db: &Database) -> Result<Vec<Workspace>> {
-    let mut stmt = db
-        .conn()
-        .prepare("SELECT id, name, created_at FROM workspaces ORDER BY name")?;
+    let mut stmt = db.conn().prepare(
+        "SELECT id, name, cmux_workspace_id, created_at FROM workspaces ORDER BY name",
+    )?;
     let rows = stmt.query_map([], |r| {
         Ok(Workspace {
             id: r.get(0)?,
             name: r.get(1)?,
-            created_at: r.get(2)?,
+            cmux_workspace_id: r.get(2)?,
+            created_at: r.get(3)?,
         })
     })?;
     rows.map(|r| r.map_err(Into::into)).collect()
+}
+
+pub fn set_cmux_id(db: &Database, workspace_id: i64, cmux_id: &str) -> Result<()> {
+    db.conn().execute(
+        "UPDATE workspaces SET cmux_workspace_id = ?1 WHERE id = ?2",
+        (cmux_id, workspace_id),
+    )?;
+    Ok(())
 }
 
 pub fn delete(db: &Database, name: &str) -> Result<()> {

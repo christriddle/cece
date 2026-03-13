@@ -31,6 +31,10 @@ impl Database {
 
     fn run_migrations(&self) -> Result<()> {
         self.conn.execute_batch(include_str!("schema.sql"))?;
+        // Add columns introduced after initial release (ignored if already present)
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE workspaces ADD COLUMN cmux_workspace_id TEXT;",
+        );
         Ok(())
     }
 
