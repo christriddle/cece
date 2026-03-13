@@ -63,12 +63,19 @@ pub fn open_surface(cmux_workspace_id: &str, dir: &Path) -> Result<()> {
     // Snapshot whatever surfaces already exist (auto-created by cmux on workspace select).
     let existing = list_surface_ids()?;
 
-    // Start an interactive shell in the worktree directory.
-    // `zsh -c 'cd /path && exec zsh'` cds then execs a new interactive zsh
-    // that inherits the cwd, keeping the terminal alive in the right place.
-    let cmd = format!("zsh -c 'cd {} && exec zsh'", dir.display());
-    send_request("surface.split", json!({"direction": "right", "command": cmd}))
+    // Create a new surface, then send a cd command to navigate it to the worktree.
+    let resp = send_request("surface.split", json!({"direction": "right"}))
         .context("surface.split failed")?;
+    let surface_id = resp
+        .get("result")
+        .and_then(|r| r.get("surface_id"))
+        .and_then(|id| id.as_str())
+        .context("surface.split returned no surface_id")?;
+    send_request(
+        "surface.send_text",
+        json!({"surface_id": surface_id, "text": format!("cd {}\n", dir.display())}),
+    )
+    .context("surface.send_text failed")?;
 
     // Close the pre-existing surfaces now that ours is open.
     for id in existing {
@@ -80,7 +87,7 @@ pub fn open_surface(cmux_workspace_id: &str, dir: &Path) -> Result<()> {
 
 fn list_surface_ids() -> Result<Vec<String>> {
     let resp = send_request("surface.list", json!({}))?;
-    let ids = resp
+    Ok(resp
         .get("result")
         .and_then(|r| r.get("surfaces"))
         .and_then(|s| s.as_array())
@@ -89,8 +96,7 @@ fn list_surface_ids() -> Result<Vec<String>> {
                 .filter_map(|s| s.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
                 .collect()
         })
-        .unwrap_or_default();
-    Ok(ids)
+        .unwrap_or_default())
 }
 
 /// Open a new split surface in the given cmux workspace and start Claude Code in it.
@@ -98,15 +104,20 @@ fn list_surface_ids() -> Result<Vec<String>> {
 pub fn new_agent_tab(cmux_workspace_id: &str, agent_name: &str, working_dir: &Path) -> Result<String> {
     send_request("workspace.select", json!({"workspace_id": cmux_workspace_id}))?;
 
-    let cmd = format!("cd {} && claude", working_dir.display());
-    let resp = send_request("surface.split", json!({"direction": "right", "command": cmd}))
+    let resp = send_request("surface.split", json!({"direction": "right"}))
         .context("surface.split failed")?;
-
-    resp.get("result")
+    let surface_id = resp
+        .get("result")
         .and_then(|r| r.get("surface_id"))
         .and_then(|id| id.as_str())
-        .map(|s| s.to_string())
-        .with_context(|| format!("surface.split for agent '{agent_name}' returned no surface_id"))
+        .with_context(|| format!("surface.split for agent '{agent_name}' returned no surface_id"))?;
+    send_request(
+        "surface.send_text",
+        json!({"surface_id": surface_id, "text": format!("cd {} && claude\n", working_dir.display())}),
+    )
+    .context("surface.send_text failed")?;
+
+    Ok(surface_id.to_string())
 }
 
 /// Focus an existing agent surface using its stored surface ID.
