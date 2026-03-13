@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Subcommand;
 use comfy_table::{Cell, Table};
 use dialoguer::{Input, MultiSelect};
@@ -198,6 +198,27 @@ fn delete(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Return the cmux workspace ID for a cece workspace, creating a new cmux workspace
+/// if one hasn't been set or the previously stored one no longer exists.
+pub(crate) fn ensure_cmux_workspace(
+    db: &crate::db::Database,
+    ws: &workspace::Workspace,
+    name: &str,
+) -> Result<String> {
+    if let Some(cmux_id) = ws.cmux_workspace_id.as_deref() {
+        match crate::cmux::select_workspace(cmux_id) {
+            Ok(()) => return Ok(cmux_id.to_string()),
+            Err(e) if e.to_string().contains("not_found") => {
+                eprintln!("Cmux workspace no longer exists, creating a new one...");
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    let new_id = crate::cmux::create_workspace(name)?;
+    workspace::set_cmux_id(db, ws.id, &new_id)?;
+    Ok(new_id)
+}
+
 fn switch(name: &str) -> Result<()> {
     let db = open_db()?;
     let ws = workspace::get_by_name(&db, name)?;
@@ -206,10 +227,8 @@ fn switch(name: &str) -> Result<()> {
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
 
     if cmux_enabled {
-        let cmux_id = ws.cmux_workspace_id.as_deref().with_context(|| {
-            format!("workspace '{name}' has no cmux ID — was it created with cmux enabled?")
-        })?;
-        crate::cmux::select_workspace(cmux_id)?;
+        let cmux_id = ensure_cmux_workspace(&db, &ws, name)?;
+        crate::cmux::select_workspace(&cmux_id)?;
         println!("Switched to workspace '{}' in Cmux.", name);
     } else {
         println!("{}", ws_dir.display());

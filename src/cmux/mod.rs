@@ -20,7 +20,21 @@ fn send_request(method: &str, params: Value) -> Result<Value> {
     let mut line = String::new();
     reader.read_line(&mut line).context("no response from cmux")?;
 
-    serde_json::from_str(line.trim()).context("invalid JSON response from cmux")
+    let resp: Value = serde_json::from_str(line.trim()).context("invalid JSON response from cmux")?;
+    if resp.get("ok").and_then(|v| v.as_bool()) == Some(false) {
+        let code = resp
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("unknown");
+        let msg = resp
+            .get("error")
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
+        anyhow::bail!("cmux error [{code}]: {msg}");
+    }
+    Ok(resp)
 }
 
 /// Create a new Cmux workspace with the given title. Returns the cmux workspace ID.
