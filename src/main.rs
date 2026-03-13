@@ -17,6 +17,12 @@ fn main() -> Result<()> {
         Commands::Agent(cmd) => cli::agent::handle_agent(cmd)?,
         Commands::Template(cmd) => cli::template::handle_template(cmd)?,
         Commands::Status => cli::status::handle_status()?,
+        Commands::Completions { shell } => {
+            use clap::CommandFactory;
+            use clap_complete::generate;
+            let mut cmd = Cli::command();
+            generate(shell, &mut cmd, "cece", &mut std::io::stdout());
+        }
     }
     Ok(())
 }

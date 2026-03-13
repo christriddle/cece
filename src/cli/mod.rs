@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
 pub mod agent;
 pub mod init;
@@ -28,4 +29,9 @@ pub enum Commands {
     Template(template::TemplateCommands),
     /// Show status of all workspaces and agents
     Status,
+    /// Generate shell completions
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
