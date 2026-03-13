@@ -55,13 +55,42 @@ pub fn select_workspace(cmux_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Open a terminal surface in the given cmux workspace at `dir`.
+/// Open a terminal surface in the given cmux workspace rooted at `dir`.
+/// Replaces any auto-created surfaces that were added when the workspace was selected.
 pub fn open_surface(cmux_workspace_id: &str, dir: &Path) -> Result<()> {
     select_workspace(cmux_workspace_id)?;
-    let cmd = format!("cd {}", dir.display());
-    send_request("surface.split", json!({"direction": "right", "command": cmd}))
-        .context("surface.split failed")?;
+
+    // Snapshot whatever surfaces already exist (auto-created by cmux on workspace select).
+    let existing = list_surface_ids()?;
+
+    // Create our surface using cwd so the shell starts in the right directory.
+    send_request(
+        "surface.split",
+        json!({"direction": "right", "cwd": dir.to_string_lossy()}),
+    )
+    .context("surface.split failed")?;
+
+    // Close the pre-existing surfaces now that ours is open.
+    for id in existing {
+        let _ = send_request("surface.close", json!({"surface_id": id}));
+    }
+
     Ok(())
+}
+
+fn list_surface_ids() -> Result<Vec<String>> {
+    let resp = send_request("surface.list", json!({}))?;
+    let ids = resp
+        .get("result")
+        .and_then(|r| r.get("surfaces"))
+        .and_then(|s| s.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| s.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(ids)
 }
 
 /// Open a new split surface in the given cmux workspace and start Claude Code in it.
