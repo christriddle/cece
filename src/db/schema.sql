@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT UNIQUE NOT NULL,
     cmux_workspace_id TEXT,
+    cmux_surface_id   TEXT,
     created_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

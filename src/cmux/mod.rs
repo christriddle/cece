@@ -20,7 +20,8 @@ fn send_request(method: &str, params: Value) -> Result<Value> {
     let mut line = String::new();
     reader.read_line(&mut line).context("no response from cmux")?;
 
-    let resp: Value = serde_json::from_str(line.trim()).context("invalid JSON response from cmux")?;
+    let resp: Value =
+        serde_json::from_str(line.trim()).context("invalid JSON response from cmux")?;
     if resp.get("ok").and_then(|v| v.as_bool()) == Some(false) {
         let code = resp
             .get("error")
@@ -35,6 +36,45 @@ fn send_request(method: &str, params: Value) -> Result<Value> {
         anyhow::bail!("cmux error [{code}]: {msg}");
     }
     Ok(resp)
+}
+
+fn list_surface_ids() -> Result<Vec<String>> {
+    let resp = send_request("surface.list", json!({}))?;
+    Ok(resp
+        .get("result")
+        .and_then(|r| r.get("surfaces"))
+        .and_then(|s| s.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| s.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn send_text(surface_id: &str, text: &str) -> Result<()> {
+    send_request(
+        "surface.send_text",
+        json!({"surface_id": surface_id, "text": text}),
+    )
+    .context("surface.send_text failed")?;
+    Ok(())
+}
+
+fn focus_surface(surface_id: &str) -> Result<()> {
+    send_request("surface.focus", json!({"surface_id": surface_id}))
+        .context("surface.focus failed")?;
+    Ok(())
+}
+
+fn split(direction: &str) -> Result<String> {
+    let resp = send_request("surface.split", json!({"direction": direction}))
+        .context("surface.split failed")?;
+    resp.get("result")
+        .and_then(|r| r.get("surface_id"))
+        .and_then(|id| id.as_str())
+        .map(|s| s.to_string())
+        .context("surface.split returned no surface_id")
 }
 
 /// Create a new Cmux workspace with the given title. Returns the cmux workspace ID.
@@ -55,69 +95,57 @@ pub fn select_workspace(cmux_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Open a terminal surface in the given cmux workspace rooted at `dir`.
-/// Replaces any auto-created surfaces that were added when the workspace was selected.
-pub fn open_surface(cmux_workspace_id: &str, dir: &Path) -> Result<()> {
+/// Set up the command-center surface in a new workspace.
+/// Uses the surface cmux auto-creates when the workspace is selected,
+/// navigates it to `dir`, and returns its ID for storage in the DB.
+pub fn open_surface(cmux_workspace_id: &str, dir: &Path) -> Result<String> {
     select_workspace(cmux_workspace_id)?;
 
-    // Snapshot whatever surfaces already exist (auto-created by cmux on workspace select).
-    let existing = list_surface_ids()?;
+    let surfaces = list_surface_ids()?;
+    let surface_id = surfaces
+        .into_iter()
+        .next()
+        .context("no surfaces found in new workspace")?;
 
-    // Create a new surface, then send a cd command to navigate it to the worktree.
-    let resp = send_request("surface.split", json!({"direction": "right"}))
-        .context("surface.split failed")?;
-    let surface_id = resp
-        .get("result")
-        .and_then(|r| r.get("surface_id"))
-        .and_then(|id| id.as_str())
-        .context("surface.split returned no surface_id")?;
-    send_request(
-        "surface.send_text",
-        json!({"surface_id": surface_id, "text": format!("cd {}\n", dir.display())}),
-    )
-    .context("surface.send_text failed")?;
-
-    // Close the pre-existing surfaces now that ours is open.
-    for id in existing {
-        let _ = send_request("surface.close", json!({"surface_id": id}));
-    }
-
-    Ok(())
+    send_text(&surface_id, &format!("cd {}\n", dir.display()))?;
+    Ok(surface_id)
 }
 
-fn list_surface_ids() -> Result<Vec<String>> {
-    let resp = send_request("surface.list", json!({}))?;
-    Ok(resp
-        .get("result")
-        .and_then(|r| r.get("surfaces"))
-        .and_then(|s| s.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|s| s.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default())
-}
+/// Open a new agent surface in the workspace.
+///
+/// Layout:
+/// - First agent: split the command-center UP → agent appears above it.
+/// - Subsequent agents: split the last agent surface RIGHT → agents tile horizontally.
+///
+/// Returns the new surface ID for storage as the agent's session_id.
+pub fn new_agent_tab(
+    cmux_workspace_id: &str,
+    command_center_surface_id: &str,
+    agent_name: &str,
+    working_dir: &Path,
+) -> Result<String> {
+    select_workspace(cmux_workspace_id)?;
 
-/// Open a new split surface in the given cmux workspace and start Claude Code in it.
-/// Returns the cmux surface ID, which should be stored as the agent's session_id.
-pub fn new_agent_tab(cmux_workspace_id: &str, agent_name: &str, working_dir: &Path) -> Result<String> {
-    send_request("workspace.select", json!({"workspace_id": cmux_workspace_id}))?;
+    let all_surfaces = list_surface_ids()?;
+    let agent_surfaces: Vec<_> = all_surfaces
+        .into_iter()
+        .filter(|id| id != command_center_surface_id)
+        .collect();
 
-    let resp = send_request("surface.split", json!({"direction": "right"}))
-        .context("surface.split failed")?;
-    let surface_id = resp
-        .get("result")
-        .and_then(|r| r.get("surface_id"))
-        .and_then(|id| id.as_str())
-        .with_context(|| format!("surface.split for agent '{agent_name}' returned no surface_id"))?;
-    send_request(
-        "surface.send_text",
-        json!({"surface_id": surface_id, "text": format!("cd {} && claude\n", working_dir.display())}),
-    )
-    .context("surface.send_text failed")?;
+    let (split_from, direction) = match agent_surfaces.last() {
+        None => (command_center_surface_id.to_string(), "up"),
+        Some(last) => (last.clone(), "right"),
+    };
 
-    Ok(surface_id.to_string())
+    focus_surface(&split_from)?;
+    let new_surface_id = split(direction)?;
+    send_text(
+        &new_surface_id,
+        &format!("cd {} && claude\n", working_dir.display()),
+    )?;
+
+    let _ = agent_name; // stored by caller, not needed for the split
+    Ok(new_surface_id)
 }
 
 /// Focus an existing agent surface using its stored surface ID.

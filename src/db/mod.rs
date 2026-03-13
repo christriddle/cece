@@ -35,6 +35,9 @@ impl Database {
         let _ = self.conn.execute_batch(
             "ALTER TABLE workspaces ADD COLUMN cmux_workspace_id TEXT;",
         );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE workspaces ADD COLUMN cmux_surface_id TEXT;",
+        );
         Ok(())
     }
 

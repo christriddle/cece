@@ -81,7 +81,10 @@ fn create(name: &str, workspace_name: &str, dir_override: Option<PathBuf>) -> Re
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
         let cmux_id = crate::cli::workspace::ensure_cmux_workspace(&db, &ws, workspace_name)?;
-        let session_id = crate::cmux::new_agent_tab(&cmux_id, name, &working_dir)?;
+        let surface_id = ws.cmux_surface_id.as_deref().with_context(|| {
+            format!("workspace '{workspace_name}' has no command-center surface — try re-creating it with cmux enabled")
+        })?;
+        let session_id = crate::cmux::new_agent_tab(&cmux_id, surface_id, name, &working_dir)?;
         agent::update_session(&db, id, &session_id, None)?;
         println!("Opened in Cmux tab.");
     } else {
