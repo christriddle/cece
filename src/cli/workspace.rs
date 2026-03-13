@@ -136,16 +136,20 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
     if cmux_enabled {
         let cmux_id = crate::cmux::create_workspace(name)?;
         workspace::set_cmux_id(&db, ws_id, &cmux_id)?;
-        // Use the first repo's worktree as the command-center surface.
-        if let Some(first_repo) = repo_paths.first() {
-            let repo_name = std::path::Path::new(first_repo)
+        // Open the command-center surface. With a single repo, land in the worktree
+        // directly; with multiple repos, land in the workspace root so all repos
+        // are visible as subdirectories.
+        let start_dir = if repo_paths.len() == 1 {
+            let repo_name = std::path::Path::new(&repo_paths[0])
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "repo".to_string());
-            let worktree_path = ws_dir.join(&repo_name);
-            let surface_id = crate::cmux::open_surface(&cmux_id, &worktree_path)?;
-            workspace::set_cmux_surface_id(&db, ws_id, &surface_id)?;
-        }
+            ws_dir.join(repo_name)
+        } else {
+            ws_dir.clone()
+        };
+        let surface_id = crate::cmux::open_surface(&cmux_id, &start_dir)?;
+        workspace::set_cmux_surface_id(&db, ws_id, &surface_id)?;
         println!("Workspace '{}' created (branch: {}) — Cmux workspace opened.", name, branch);
     } else {
         println!("Workspace '{}' created (branch: {}).", name, branch);
