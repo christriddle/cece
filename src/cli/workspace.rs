@@ -136,6 +136,15 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
     if cmux_enabled {
         let cmux_id = crate::cmux::create_workspace(name)?;
         workspace::set_cmux_id(&db, ws_id, &cmux_id)?;
+        for repo_path_str in &repo_paths {
+            let repo_path = std::path::Path::new(repo_path_str);
+            let repo_name = repo_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "repo".to_string());
+            let worktree_path = ws_dir.join(&repo_name);
+            crate::cmux::open_surface(&cmux_id, &worktree_path)?;
+        }
         println!("Workspace '{}' created (branch: {}) — Cmux workspace opened.", name, branch);
     } else {
         println!("Workspace '{}' created (branch: {}).", name, branch);

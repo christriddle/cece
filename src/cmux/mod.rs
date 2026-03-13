@@ -55,6 +55,15 @@ pub fn select_workspace(cmux_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Open a terminal surface in the given cmux workspace at `dir`.
+pub fn open_surface(cmux_workspace_id: &str, dir: &Path) -> Result<()> {
+    select_workspace(cmux_workspace_id)?;
+    let cmd = format!("cd {}", dir.display());
+    send_request("surface.split", json!({"direction": "right", "command": cmd}))
+        .context("surface.split failed")?;
+    Ok(())
+}
+
 /// Open a new split surface in the given cmux workspace and start Claude Code in it.
 /// Returns the cmux surface ID, which should be stored as the agent's session_id.
 pub fn new_agent_tab(cmux_workspace_id: &str, agent_name: &str, working_dir: &Path) -> Result<String> {
