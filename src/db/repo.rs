@@ -15,6 +15,7 @@ pub fn list(db: &Database) -> Result<Vec<String>> {
     rows.map(|r| r.map_err(Into::into)).collect()
 }
 
+#[allow(dead_code)] // used in future task
 pub fn remove(db: &Database, path: &str) -> Result<()> {
     db.conn().execute("DELETE FROM known_repos WHERE path = ?1", [path])?;
     Ok(())

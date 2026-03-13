@@ -4,6 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 /// Detect the default branch of a repo (main or master).
+#[allow(dead_code)] // used in future task (Task 7)
 pub fn detect_default_branch(repo_path: &Path) -> Result<String> {
     let output = Command::new("git")
         .args(["-C", &repo_path.to_string_lossy(), "symbolic-ref", "refs/remotes/origin/HEAD"])

@@ -1,6 +1,7 @@
 use crate::db::Database;
 use crate::error::{CeceError, Result};
 
+#[allow(dead_code)] // used in future task (Task 8)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Template {
     pub id: i64,
@@ -9,6 +10,7 @@ pub struct Template {
     pub repo_paths: Vec<String>,
 }
 
+#[allow(dead_code)] // used in future task (Task 8)
 pub fn create(db: &Database, name: &str, branch_template: &str, repo_paths: &[String]) -> Result<i64> {
     let repo_paths_json = serde_json::to_string(repo_paths).expect("serialization is infallible");
     db.conn().execute(
@@ -18,6 +20,7 @@ pub fn create(db: &Database, name: &str, branch_template: &str, repo_paths: &[St
     Ok(db.conn().last_insert_rowid())
 }
 
+#[allow(dead_code)] // used in future task (Task 8)
 pub fn get_by_name(db: &Database, name: &str) -> Result<Template> {
     let mut stmt = db.conn().prepare(
         "SELECT id, name, branch_template, repo_paths FROM templates WHERE name = ?1",
@@ -37,6 +40,7 @@ pub fn get_by_name(db: &Database, name: &str) -> Result<Template> {
     })
 }
 
+#[allow(dead_code)] // used in future task (Task 8)
 pub fn list(db: &Database) -> Result<Vec<Template>> {
     let mut stmt = db.conn().prepare(
         "SELECT id, name, branch_template, repo_paths FROM templates ORDER BY name",
@@ -54,6 +58,7 @@ pub fn list(db: &Database) -> Result<Vec<Template>> {
     .collect()
 }
 
+#[allow(dead_code)] // used in future task (Task 8)
 pub fn delete(db: &Database, name: &str) -> Result<()> {
     let rows = db.conn().execute("DELETE FROM templates WHERE name = ?1", [name])?;
     if rows == 0 {
