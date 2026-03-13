@@ -6,7 +6,10 @@ use std::time::Duration;
 /// Encode a directory path into the format Claude Code uses for session directories.
 /// Claude Code stores sessions under ~/.claude/projects/<encoded-path>/
 fn encode_project_path(dir: &Path) -> String {
-    dir.to_string_lossy().replace('/', "-").trim_start_matches('-').to_string()
+    dir.to_string_lossy()
+        .replace('/', "-")
+        .trim_start_matches('-')
+        .to_string()
 }
 
 fn claude_session_dir(working_dir: &str) -> Option<std::path::PathBuf> {

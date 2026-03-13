@@ -10,14 +10,17 @@ pub fn add(db: &Database, path: &str) -> Result<()> {
 }
 
 pub fn list(db: &Database) -> Result<Vec<String>> {
-    let mut stmt = db.conn().prepare("SELECT path FROM known_repos ORDER BY path")?;
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT path FROM known_repos ORDER BY path")?;
     let rows = stmt.query_map([], |r| r.get(0))?;
     rows.map(|r| r.map_err(Into::into)).collect()
 }
 
 #[allow(dead_code)] // used in future task
 pub fn remove(db: &Database, path: &str) -> Result<()> {
-    db.conn().execute("DELETE FROM known_repos WHERE path = ?1", [path])?;
+    db.conn()
+        .execute("DELETE FROM known_repos WHERE path = ?1", [path])?;
     Ok(())
 }
 

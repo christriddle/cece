@@ -72,7 +72,12 @@ pub fn delete(db: &Database, name: &str, workspace_id: i64) -> Result<()> {
     Ok(())
 }
 
-pub fn update_session(db: &Database, id: i64, session_id: &str, last_request: Option<&str>) -> Result<()> {
+pub fn update_session(
+    db: &Database,
+    id: i64,
+    session_id: &str,
+    last_request: Option<&str>,
+) -> Result<()> {
     db.conn().execute(
         "UPDATE agents SET session_id = ?1, last_request = ?2 WHERE id = ?3",
         (session_id, last_request, id),

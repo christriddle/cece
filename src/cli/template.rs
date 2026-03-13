@@ -36,7 +36,11 @@ fn create(name: &str) -> Result<()> {
             .with_prompt("Enter a repo path to include (blank to skip)")
             .allow_empty(true)
             .interact_text()?;
-        if path.is_empty() { vec![] } else { vec![path] }
+        if path.is_empty() {
+            vec![]
+        } else {
+            vec![path]
+        }
     } else {
         let selections = MultiSelect::new()
             .with_prompt("Select repos to include in this template")

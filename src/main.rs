@@ -28,7 +28,8 @@ fn main() -> Result<()> {
 }
 
 pub fn cece_dir() -> Result<std::path::PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
+    let home =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
     Ok(home.join(".cece"))
 }
 

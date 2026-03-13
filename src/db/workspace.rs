@@ -18,16 +18,21 @@ pub struct WorkspaceRepo {
 }
 
 pub fn create(db: &Database, name: &str) -> Result<i64> {
-    db.conn().execute("INSERT INTO workspaces (name) VALUES (?1)", [name])?;
+    db.conn()
+        .execute("INSERT INTO workspaces (name) VALUES (?1)", [name])?;
     Ok(db.conn().last_insert_rowid())
 }
 
 pub fn get_by_name(db: &Database, name: &str) -> Result<Workspace> {
-    let mut stmt = db.conn().prepare(
-        "SELECT id, name, created_at FROM workspaces WHERE name = ?1",
-    )?;
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT id, name, created_at FROM workspaces WHERE name = ?1")?;
     stmt.query_row([name], |r| {
-        Ok(Workspace { id: r.get(0)?, name: r.get(1)?, created_at: r.get(2)? })
+        Ok(Workspace {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            created_at: r.get(2)?,
+        })
     })
     .map_err(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => CeceError::WorkspaceNotFound(name.to_string()),
@@ -36,17 +41,23 @@ pub fn get_by_name(db: &Database, name: &str) -> Result<Workspace> {
 }
 
 pub fn list(db: &Database) -> Result<Vec<Workspace>> {
-    let mut stmt = db.conn().prepare(
-        "SELECT id, name, created_at FROM workspaces ORDER BY name",
-    )?;
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT id, name, created_at FROM workspaces ORDER BY name")?;
     let rows = stmt.query_map([], |r| {
-        Ok(Workspace { id: r.get(0)?, name: r.get(1)?, created_at: r.get(2)? })
+        Ok(Workspace {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            created_at: r.get(2)?,
+        })
     })?;
     rows.map(|r| r.map_err(Into::into)).collect()
 }
 
 pub fn delete(db: &Database, name: &str) -> Result<()> {
-    let rows = db.conn().execute("DELETE FROM workspaces WHERE name = ?1", [name])?;
+    let rows = db
+        .conn()
+        .execute("DELETE FROM workspaces WHERE name = ?1", [name])?;
     if rows == 0 {
         return Err(CeceError::WorkspaceNotFound(name.to_string()));
     }

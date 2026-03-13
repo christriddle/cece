@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --release
+      - name: Verify binary runs
+        run: ./target/release/cece --version
+      - name: Create archive
+        run: |
+          cd target/release
+          tar -czf cece-${{ github.ref_name }}-macos.tar.gz cece
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/cece-${{ github.ref_name }}-macos.tar.gz

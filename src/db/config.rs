@@ -11,7 +11,9 @@ pub fn set(db: &Database, key: &str, value: &str) -> Result<()> {
 }
 
 pub fn get(db: &Database, key: &str) -> Result<Option<String>> {
-    let mut stmt = db.conn().prepare("SELECT value FROM config WHERE key = ?1")?;
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT value FROM config WHERE key = ?1")?;
     let mut rows = stmt.query([key])?;
     Ok(rows.next()?.map(|r| r.get(0)).transpose()?)
 }

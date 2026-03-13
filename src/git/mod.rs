@@ -7,7 +7,12 @@ use std::process::Command;
 #[allow(dead_code)] // used in future task (Task 7)
 pub fn detect_default_branch(repo_path: &Path) -> Result<String> {
     let output = Command::new("git")
-        .args(["-C", &repo_path.to_string_lossy(), "symbolic-ref", "refs/remotes/origin/HEAD"])
+        .args([
+            "-C",
+            &repo_path.to_string_lossy(),
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+        ])
         .output()
         .map_err(|e| CeceError::Git(e.to_string()))?;
 
@@ -22,7 +27,13 @@ pub fn detect_default_branch(repo_path: &Path) -> Result<String> {
     // Fallback: check for main then master
     for branch in ["main", "master"] {
         let check = Command::new("git")
-            .args(["-C", &repo_path.to_string_lossy(), "rev-parse", "--verify", branch])
+            .args([
+                "-C",
+                &repo_path.to_string_lossy(),
+                "rev-parse",
+                "--verify",
+                branch,
+            ])
             .output()
             .map_err(|e| CeceError::Git(e.to_string()))?;
         if check.status.success() {
@@ -30,7 +41,9 @@ pub fn detect_default_branch(repo_path: &Path) -> Result<String> {
         }
     }
 
-    Err(CeceError::Git("cannot determine default branch".to_string()))
+    Err(CeceError::Git(
+        "cannot determine default branch".to_string(),
+    ))
 }
 
 /// Create a git worktree at `worktree_path` on a new branch named `branch`.
@@ -74,7 +87,9 @@ pub fn worktree_remove(repo_path: &Path, worktree_path: &Path) -> Result<()> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(CeceError::Git(format!("git worktree remove failed: {stderr}")));
+        return Err(CeceError::Git(format!(
+            "git worktree remove failed: {stderr}"
+        )));
     }
     Ok(())
 }

@@ -51,7 +51,11 @@ pub enum AgentCommands {
 
 pub fn handle_agent(cmd: AgentCommands) -> Result<()> {
     match cmd {
-        AgentCommands::Create { name, workspace, dir } => create(&name, &workspace, dir),
+        AgentCommands::Create {
+            name,
+            workspace,
+            dir,
+        } => create(&name, &workspace, dir),
         AgentCommands::List { workspace } => list(&workspace),
         AgentCommands::Delete { name, workspace } => delete(&name, &workspace),
         AgentCommands::Switch { name, workspace } => switch(&name, &workspace),
@@ -67,7 +71,10 @@ fn create(name: &str, workspace_name: &str, dir_override: Option<PathBuf>) -> Re
     let working_dir = dir_override.unwrap_or(ws_dir);
 
     let id = agent::create(&db, name, ws.id, &working_dir.to_string_lossy())?;
-    println!("Agent '{}' created in workspace '{}'.", name, workspace_name);
+    println!(
+        "Agent '{}' created in workspace '{}'.",
+        name, workspace_name
+    );
 
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {

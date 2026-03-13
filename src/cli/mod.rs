@@ -8,7 +8,11 @@ pub mod template;
 pub mod workspace;
 
 #[derive(Parser)]
-#[command(name = "cece", about = "Manage workspaces of Git repos and AI agents", version)]
+#[command(
+    name = "cece",
+    about = "Manage workspaces of Git repos and AI agents",
+    version
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

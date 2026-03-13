@@ -25,7 +25,9 @@ pub fn handle_init() -> Result<()> {
 
     // Branch template
     let existing_template = config::get(&db, "branch_template")?;
-    let default_template = existing_template.as_deref().unwrap_or("{initials}-{ticket}-{desc}");
+    let default_template = existing_template
+        .as_deref()
+        .unwrap_or("{initials}-{ticket}-{desc}");
     let branch_template: String = Input::new()
         .with_prompt("Branch name template")
         .with_initial_text(default_template)

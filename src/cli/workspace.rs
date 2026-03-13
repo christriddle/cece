@@ -28,7 +28,11 @@ pub enum WorkspaceCommands {
 
 pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
     match cmd {
-        WorkspaceCommands::Create { name, repos, branch } => create(&name, repos, branch),
+        WorkspaceCommands::Create {
+            name,
+            repos,
+            branch,
+        } => create(&name, repos, branch),
         WorkspaceCommands::List => list(),
         WorkspaceCommands::Delete { name } => delete(&name),
         WorkspaceCommands::Switch { name } => switch(&name),
@@ -77,8 +81,13 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
 
             if template.contains('{') {
                 let initials: String = Input::new().with_prompt("Your initials").interact_text()?;
-                let ticket: String = Input::new().with_prompt("Ticket number").allow_empty(true).interact_text()?;
-                let desc: String = Input::new().with_prompt("Short description").interact_text()?;
+                let ticket: String = Input::new()
+                    .with_prompt("Ticket number")
+                    .allow_empty(true)
+                    .interact_text()?;
+                let desc: String = Input::new()
+                    .with_prompt("Short description")
+                    .interact_text()?;
                 let mut vars = HashMap::new();
                 vars.insert("initials", initials.as_str());
                 vars.insert("ticket", ticket.as_str());
@@ -95,13 +104,20 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
 
     for repo_path_str in &repo_paths {
         let repo_path = std::path::Path::new(repo_path_str);
-        let repo_name = repo_path.file_name()
+        let repo_name = repo_path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "repo".to_string());
         let worktree_path = ws_dir.join(&repo_name);
 
         git::worktree_add(repo_path, &worktree_path, &branch)?;
-        workspace::add_repo(&db, ws_id, repo_path_str, &branch, &worktree_path.to_string_lossy())?;
+        workspace::add_repo(
+            &db,
+            ws_id,
+            repo_path_str,
+            &branch,
+            &worktree_path.to_string_lossy(),
+        )?;
         repo::add(&db, repo_path_str)?;
 
         println!("  added {} → {}", repo_name, worktree_path.display());
@@ -124,11 +140,14 @@ fn list() -> Result<()> {
     table.set_header(["Name", "Repos", "Created"]);
     for ws in &workspaces {
         let repos = workspace::get_repos(&db, ws.id)?;
-        let repo_names: Vec<_> = repos.iter()
-            .map(|r| std::path::Path::new(&r.repo_path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default())
+        let repo_names: Vec<_> = repos
+            .iter()
+            .map(|r| {
+                std::path::Path::new(&r.repo_path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            })
             .collect();
         table.add_row([
             Cell::new(&ws.name),
@@ -176,7 +195,10 @@ fn switch(name: &str) -> Result<()> {
         println!("Switched to workspace '{}' in Cmux.", name);
     } else {
         println!("{}", ws_dir.display());
-        eprintln!("(Tip: use `cd $(cece ws switch {})` to change directories)", name);
+        eprintln!(
+            "(Tip: use `cd $(cece ws switch {})` to change directories)",
+            name
+        );
     }
     Ok(())
 }
