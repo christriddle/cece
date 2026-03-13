@@ -39,6 +39,13 @@ fn find_workspace_id(name: &str) -> Result<String> {
         .with_context(|| format!("no cmux workspace with title '{name}'"))
 }
 
+/// Create a new Cmux workspace with the given title.
+pub fn create_workspace(name: &str) -> Result<()> {
+    send_request("workspace.create", json!({"title": name}))
+        .context("workspace.create failed")?;
+    Ok(())
+}
+
 /// Switch the active Cmux workspace by title.
 pub fn select_workspace(name: &str) -> Result<()> {
     let id = find_workspace_id(name)?;

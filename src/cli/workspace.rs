@@ -132,7 +132,13 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
         println!("  added {} → {}", repo_name, worktree_path.display());
     }
 
-    println!("Workspace '{}' created (branch: {})", name, branch);
+    let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
+    if cmux_enabled {
+        crate::cmux::create_workspace(name)?;
+        println!("Workspace '{}' created (branch: {}) — Cmux workspace opened.", name, branch);
+    } else {
+        println!("Workspace '{}' created (branch: {}).", name, branch);
+    }
     Ok(())
 }
 
