@@ -33,6 +33,8 @@ pub enum Commands {
     Template(template::TemplateCommands),
     /// Show status of all workspaces and agents
     Status,
+    /// Open the current worktree in IntelliJ IDEA
+    Idea,
     /// Generate shell completions
     Completions {
         #[arg(value_enum)]

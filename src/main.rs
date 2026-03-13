@@ -17,12 +17,39 @@ fn main() -> Result<()> {
         Commands::Agent(cmd) => cli::agent::handle_agent(cmd)?,
         Commands::Template(cmd) => cli::template::handle_template(cmd)?,
         Commands::Status => cli::status::handle_status()?,
+        Commands::Idea => handle_idea()?,
         Commands::Completions { shell } => {
             use clap::CommandFactory;
             use clap_complete::generate;
             let mut cmd = Cli::command();
             generate(shell, &mut cmd, "cece", &mut std::io::stdout());
         }
+    }
+    Ok(())
+}
+
+fn handle_idea() -> Result<()> {
+    let db = open_db()?;
+    let cwd = std::env::current_dir()?;
+
+    let ws = db::workspace::find_by_worktree(&db, &cwd)?.ok_or_else(|| {
+        anyhow::anyhow!("not inside a cece worktree — run this from inside a workspace directory")
+    })?;
+
+    let repos = db::workspace::get_repos(&db, ws.id)?;
+    let worktree_path = repos
+        .into_iter()
+        .find(|r| cwd.starts_with(&r.worktree_path))
+        .map(|r| std::path::PathBuf::from(r.worktree_path))
+        .unwrap_or(cwd);
+
+    let status = std::process::Command::new("idea")
+        .arg(&worktree_path)
+        .status()
+        .map_err(|e| anyhow::anyhow!("failed to run `idea`: {e} — is it installed and in PATH?"))?;
+
+    if !status.success() {
+        anyhow::bail!("`idea` exited with status {status}");
     }
     Ok(())
 }
