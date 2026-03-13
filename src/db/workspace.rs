@@ -29,7 +29,10 @@ pub fn get_by_name(db: &Database, name: &str) -> Result<Workspace> {
     stmt.query_row([name], |r| {
         Ok(Workspace { id: r.get(0)?, name: r.get(1)?, created_at: r.get(2)? })
     })
-    .map_err(|_| CeceError::WorkspaceNotFound(name.to_string()))
+    .map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => CeceError::WorkspaceNotFound(name.to_string()),
+        other => CeceError::Database(other),
+    })
 }
 
 pub fn list(db: &Database) -> Result<Vec<Workspace>> {

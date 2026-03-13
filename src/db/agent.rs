@@ -36,7 +36,10 @@ pub fn get_by_name(db: &Database, name: &str, workspace_id: i64) -> Result<Agent
             created_at: r.get(6)?,
         })
     })
-    .map_err(|_| CeceError::AgentNotFound(name.to_string()))
+    .map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => CeceError::AgentNotFound(name.to_string()),
+        other => CeceError::Database(other),
+    })
 }
 
 pub fn list(db: &Database, workspace_id: i64) -> Result<Vec<Agent>> {

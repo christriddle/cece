@@ -26,7 +26,10 @@ pub fn get_by_name(db: &Database, name: &str) -> Result<Template> {
         let repo_paths_json: String = r.get(3)?;
         Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, repo_paths_json))
     })
-    .map_err(|_| CeceError::TemplateNotFound(name.to_string()))
+    .map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => CeceError::TemplateNotFound(name.to_string()),
+        other => CeceError::Database(other),
+    })
     .and_then(|(id, tname, branch_template, json)| {
         let repo_paths = serde_json::from_str(&json)
             .map_err(|e| CeceError::Git(format!("invalid template data: {e}")))?;
