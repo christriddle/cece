@@ -3,6 +3,8 @@ use clap::Subcommand;
 use comfy_table::{Cell, Table};
 use std::path::PathBuf;
 
+use anyhow::Context;
+
 use crate::{db::agent, db::config, db::workspace, open_db};
 
 #[derive(Subcommand)]
@@ -127,7 +129,11 @@ fn switch(name: &str, workspace_name: &str) -> Result<()> {
 
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
-        crate::cmux::select_agent_tab(workspace_name, name)?;
+        let surface_id = a
+            .session_id
+            .as_deref()
+            .with_context(|| format!("agent '{name}' has no cmux surface — was it created with cmux enabled?"))?;
+        crate::cmux::select_agent_tab(surface_id)?;
         println!("Switched to agent '{}' in Cmux.", name);
     } else {
         println!("{}", a.working_dir);
