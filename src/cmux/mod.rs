@@ -63,12 +63,12 @@ pub fn open_surface(cmux_workspace_id: &str, dir: &Path) -> Result<()> {
     // Snapshot whatever surfaces already exist (auto-created by cmux on workspace select).
     let existing = list_surface_ids()?;
 
-    // Create our surface using cwd so the shell starts in the right directory.
-    send_request(
-        "surface.split",
-        json!({"direction": "right", "cwd": dir.to_string_lossy()}),
-    )
-    .context("surface.split failed")?;
+    // Start an interactive shell in the worktree directory.
+    // `zsh -c 'cd /path && exec zsh'` cds then execs a new interactive zsh
+    // that inherits the cwd, keeping the terminal alive in the right place.
+    let cmd = format!("zsh -c 'cd {} && exec zsh'", dir.display());
+    send_request("surface.split", json!({"direction": "right", "command": cmd}))
+        .context("surface.split failed")?;
 
     // Close the pre-existing surfaces now that ours is open.
     for id in existing {
