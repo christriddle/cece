@@ -71,25 +71,65 @@ pub fn worktree_add(repo_path: &Path, worktree_path: &Path, branch: &str) -> Res
     Ok(())
 }
 
-/// Remove a git worktree.
+/// Remove a git worktree and prune any stale registrations.
+/// Succeeds even if the worktree directory no longer exists.
 pub fn worktree_remove(repo_path: &Path, worktree_path: &Path) -> Result<()> {
+    // Attempt to remove the worktree. If the directory is already gone git may
+    // report "not a working tree" — that's fine, we prune below regardless.
+    if worktree_path.exists() {
+        let output = Command::new("git")
+            .args([
+                "-C",
+                &repo_path.to_string_lossy(),
+                "worktree",
+                "remove",
+                "--force",
+                &worktree_path.to_string_lossy(),
+            ])
+            .output()
+            .map_err(|e| CeceError::Git(e.to_string()))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(CeceError::Git(format!(
+                "git worktree remove failed: {stderr}"
+            )));
+        }
+    }
+
+    // Always prune to clean up any stale .git/worktrees/ entries.
+    let prune = Command::new("git")
+        .args(["-C", &repo_path.to_string_lossy(), "worktree", "prune"])
+        .output()
+        .map_err(|e| CeceError::Git(e.to_string()))?;
+
+    if !prune.status.success() {
+        let stderr = String::from_utf8_lossy(&prune.stderr);
+        return Err(CeceError::Git(format!("git worktree prune failed: {stderr}")));
+    }
+
+    Ok(())
+}
+
+/// Delete a git branch. Returns Ok if the branch was deleted or didn't exist.
+pub fn delete_branch(repo_path: &Path, branch: &str) -> Result<()> {
     let output = Command::new("git")
         .args([
             "-C",
             &repo_path.to_string_lossy(),
-            "worktree",
-            "remove",
-            "--force",
-            &worktree_path.to_string_lossy(),
+            "branch",
+            "-D",
+            branch,
         ])
         .output()
         .map_err(|e| CeceError::Git(e.to_string()))?;
 
+    // Ignore "branch not found" — it may have already been deleted manually.
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(CeceError::Git(format!(
-            "git worktree remove failed: {stderr}"
-        )));
+        if !stderr.contains("not found") {
+            return Err(CeceError::Git(format!("git branch -D failed: {stderr}")));
+        }
     }
     Ok(())
 }

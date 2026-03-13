@@ -183,9 +183,9 @@ fn delete(name: &str) -> Result<()> {
     for r in &repos {
         let repo_path = std::path::Path::new(&r.repo_path);
         let worktree_path = std::path::Path::new(&r.worktree_path);
-        if worktree_path.exists() {
-            git::worktree_remove(repo_path, worktree_path)?;
-        }
+        git::worktree_remove(repo_path, worktree_path)?;
+        git::delete_branch(repo_path, &r.branch)
+            .unwrap_or_else(|e| eprintln!("warning: could not delete branch '{}': {e}", r.branch));
     }
 
     let ws_dir = cece_dir()?.join("workspaces").join(name);
