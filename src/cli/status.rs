@@ -36,12 +36,12 @@ pub fn handle_status() -> Result<()> {
             println!("  Agents: (none)");
         } else {
             let mut agent_table = Table::new();
-            agent_table.set_header(["Agent", "Session", "Last Request"]);
+            agent_table.set_header(["Agent", "Last Request", "Last Response"]);
             for a in &agents {
                 agent_table.add_row([
                     Cell::new(&a.name),
-                    Cell::new(a.session_id.as_deref().unwrap_or("—")),
                     Cell::new(a.last_request.as_deref().unwrap_or("—")),
+                    Cell::new(a.last_response.as_deref().unwrap_or("—")),
                 ]);
             }
             println!("{agent_table}");

@@ -222,7 +222,7 @@ pub(crate) fn ensure_cmux_workspace(
     if let Some(cmux_id) = ws.cmux_workspace_id.as_deref() {
         match crate::cmux::select_workspace(cmux_id) {
             Ok(()) => return Ok(cmux_id.to_string()),
-            Err(e) if e.to_string().contains("not_found") => {
+            Err(e) if format!("{e:#}").contains("not_found") => {
                 eprintln!("Cmux workspace no longer exists, creating a new one...");
             }
             Err(e) => return Err(e),

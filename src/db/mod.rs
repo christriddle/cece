@@ -38,6 +38,12 @@ impl Database {
         let _ = self.conn.execute_batch(
             "ALTER TABLE workspaces ADD COLUMN cmux_surface_id TEXT;",
         );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE agents ADD COLUMN claude_session_id TEXT;",
+        );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE agents ADD COLUMN last_response TEXT;",
+        );
         Ok(())
     }
 

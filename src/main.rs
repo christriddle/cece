@@ -16,8 +16,12 @@ fn main() -> Result<()> {
         Commands::Workspace(cmd) => cli::workspace::handle_ws(cmd)?,
         Commands::Agent(cmd) => cli::agent::handle_agent(cmd)?,
         Commands::Template(cmd) => cli::template::handle_template(cmd)?,
+        Commands::List => cli::list::handle_list()?,
         Commands::Status => cli::status::handle_status()?,
         Commands::Idea => handle_idea()?,
+        Commands::Hook(cmd) => {
+            cli::hook::handle_hook(cmd);
+        }
         Commands::Completions { shell } => {
             use clap::CommandFactory;
             use clap_complete::generate;

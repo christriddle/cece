@@ -2,7 +2,9 @@ use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
 pub mod agent;
+pub mod hook;
 pub mod init;
+pub mod list;
 pub mod status;
 pub mod template;
 pub mod workspace;
@@ -31,10 +33,15 @@ pub enum Commands {
     /// Manage workspace templates
     #[command(subcommand)]
     Template(template::TemplateCommands),
+    /// List all workspaces and their agents
+    List,
     /// Show status of all workspaces and agents
     Status,
     /// Open the current worktree in IntelliJ IDEA
     Idea,
+    /// Internal hooks called by Claude Code
+    #[command(subcommand, hide = true)]
+    Hook(hook::HookCommands),
     /// Generate shell completions
     Completions {
         #[arg(value_enum)]

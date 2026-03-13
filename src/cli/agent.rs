@@ -91,8 +91,8 @@ fn create(name: &str, workspace_arg: Option<String>, dir_override: Option<PathBu
         let surface_id = ws.cmux_surface_id.as_deref().with_context(|| {
             format!("workspace '{workspace_name}' has no command-center surface — try re-creating it with cmux enabled")
         })?;
-        let session_id = crate::cmux::new_agent_tab(&cmux_id, surface_id, name, &working_dir, false)?;
-        agent::update_session(&db, id, &session_id, None)?;
+        let new_surface_id = crate::cmux::new_agent_tab(&cmux_id, surface_id, name, id, &working_dir, None)?;
+        agent::update_cmux_surface(&db, id, &new_surface_id, None)?;
         println!("Opened in Cmux tab.");
     } else {
         println!("Launch Claude Code manually:");
@@ -113,13 +113,13 @@ fn list(workspace_arg: Option<String>) -> Result<()> {
     }
 
     let mut table = Table::new();
-    table.set_header(["Name", "Working Dir", "Session ID", "Last Request"]);
+    table.set_header(["Name", "Working Dir", "Last Request", "Last Response"]);
     for a in &agents {
         table.add_row([
             Cell::new(&a.name),
             Cell::new(&a.working_dir),
-            Cell::new(a.session_id.as_deref().unwrap_or("—")),
             Cell::new(a.last_request.as_deref().unwrap_or("—")),
+            Cell::new(a.last_response.as_deref().unwrap_or("—")),
         ]);
     }
     println!("{table}");
@@ -132,7 +132,7 @@ fn delete(name: &str, workspace_arg: Option<String>) -> Result<()> {
     let ws = workspace::get_by_name(&db, &workspace_name)?;
     let a = agent::get_by_name(&db, name, ws.id)?;
 
-    if let Some(surface_id) = a.session_id.as_deref() {
+    if let Some(surface_id) = a.cmux_surface_id.as_deref() {
         let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
         if cmux_enabled {
             crate::cmux::close_surface(surface_id);
@@ -152,14 +152,14 @@ fn switch(name: &str, workspace_arg: Option<String>) -> Result<()> {
 
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
-        let surface_id = a.session_id.as_deref().with_context(|| {
+        let surface_id = a.cmux_surface_id.as_deref().with_context(|| {
             format!("agent '{name}' has no cmux surface — was it created with cmux enabled?")
         })?;
 
         // Try to focus the existing surface. If it's gone, recreate it and resume the session.
         match crate::cmux::select_agent_tab(surface_id) {
             Ok(()) => {}
-            Err(e) if e.to_string().contains("not_found") => {
+            Err(e) if format!("{e:#}").contains("not_found") => {
                 eprintln!("Surface no longer exists, reopening agent...");
                 let cmux_id =
                     crate::cli::workspace::ensure_cmux_workspace(&db, &ws, &workspace_name)?;
@@ -170,10 +170,11 @@ fn switch(name: &str, workspace_arg: Option<String>) -> Result<()> {
                     &cmux_id,
                     cc_surface,
                     name,
+                    a.id,
                     std::path::Path::new(&a.working_dir),
-                    true,
+                    a.claude_session_id.as_deref(),
                 )?;
-                agent::update_session(&db, a.id, &new_surface_id, a.last_request.as_deref())?;
+                agent::update_cmux_surface(&db, a.id, &new_surface_id, a.last_request.as_deref())?;
             }
             Err(e) => return Err(e),
         }
@@ -184,6 +185,7 @@ fn switch(name: &str, workspace_arg: Option<String>) -> Result<()> {
     }
     Ok(())
 }
+
 
 fn logs(name: &str, workspace_arg: Option<String>) -> Result<()> {
     let db = open_db()?;

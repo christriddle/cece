@@ -117,14 +117,16 @@ pub fn open_surface(cmux_workspace_id: &str, dir: &Path) -> Result<String> {
 /// - First agent: split the command-center UP → agent appears above it.
 /// - Subsequent agents: split the last agent surface RIGHT → agents tile horizontally.
 ///
-/// Pass `resume: true` to run `claude --continue` instead of a fresh `claude`.
-/// Returns the new surface ID for storage as the agent's session_id.
+/// Pass `claude_session_id: Some(id)` to resume a specific Claude Code session;
+/// `None` starts a fresh `claude` session.
+/// Returns the new surface ID for storage as the agent's cmux surface ID.
 pub fn new_agent_tab(
     cmux_workspace_id: &str,
     command_center_surface_id: &str,
     agent_name: &str,
+    agent_id: i64,
     working_dir: &Path,
-    resume: bool,
+    claude_session_id: Option<&str>,
 ) -> Result<String> {
     select_workspace(cmux_workspace_id)?;
 
@@ -141,10 +143,16 @@ pub fn new_agent_tab(
 
     focus_surface(&split_from)?;
     let new_surface_id = split(direction)?;
-    let claude_cmd = if resume { "claude --continue" } else { "claude" };
+    let claude_cmd = match claude_session_id {
+        Some(id) => format!("claude --resume {id}"),
+        None => "claude".to_string(),
+    };
     send_text(
         &new_surface_id,
-        &format!("cd {} && {claude_cmd}\n", working_dir.display()),
+        &format!(
+            "cd {} && export CECE_AGENT_ID={agent_id} && {claude_cmd}\n",
+            working_dir.display()
+        ),
     )?;
 
     let _ = agent_name; // stored by caller, not needed for the split
