@@ -55,7 +55,11 @@ pub enum AgentCommands {
 
 pub fn handle_agent(cmd: AgentCommands) -> Result<()> {
     match cmd {
-        AgentCommands::Create { name, workspace, dir } => create(&name, workspace, dir),
+        AgentCommands::Create {
+            name,
+            workspace,
+            dir,
+        } => create(&name, workspace, dir),
         AgentCommands::List { workspace } => list(workspace),
         AgentCommands::Delete { name, workspace } => delete(&name, workspace),
         AgentCommands::Switch { name, workspace } => switch(&name, workspace),
@@ -83,7 +87,10 @@ fn create(name: &str, workspace_arg: Option<String>, dir_override: Option<PathBu
     let working_dir = dir_override.unwrap_or(ws_dir);
 
     let id = agent::create(&db, name, ws.id, &working_dir.to_string_lossy())?;
-    println!("Agent '{}' created in workspace '{}'.", name, workspace_name);
+    println!(
+        "Agent '{}' created in workspace '{}'.",
+        name, workspace_name
+    );
 
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
@@ -91,7 +98,8 @@ fn create(name: &str, workspace_arg: Option<String>, dir_override: Option<PathBu
         let surface_id = ws.cmux_surface_id.as_deref().with_context(|| {
             format!("workspace '{workspace_name}' has no command-center surface — try re-creating it with cmux enabled")
         })?;
-        let new_surface_id = crate::cmux::new_agent_tab(&cmux_id, surface_id, name, id, &working_dir, None)?;
+        let new_surface_id =
+            crate::cmux::new_agent_tab(&cmux_id, surface_id, name, id, &working_dir, None)?;
         agent::update_cmux_surface(&db, id, &new_surface_id, None)?;
         println!("Opened in Cmux tab.");
     } else {
@@ -185,7 +193,6 @@ fn switch(name: &str, workspace_arg: Option<String>) -> Result<()> {
     }
     Ok(())
 }
-
 
 fn logs(name: &str, workspace_arg: Option<String>) -> Result<()> {
     let db = open_db()?;

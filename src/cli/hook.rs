@@ -79,10 +79,7 @@ fn session_start(payload: &serde_json::Value, db: &crate::db::Database) -> anyho
     Ok(())
 }
 
-fn user_prompt_submit(
-    payload: &serde_json::Value,
-    db: &crate::db::Database,
-) -> anyhow::Result<()> {
+fn user_prompt_submit(payload: &serde_json::Value, db: &crate::db::Database) -> anyhow::Result<()> {
     let session_id = str_field(payload, "session_id")?;
     let prompt = str_field(payload, "prompt")?;
 

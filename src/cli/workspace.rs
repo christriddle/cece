@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Subcommand;
 use comfy_table::{Cell, Table};
-use dialoguer::{Input, MultiSelect};
+use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
 use std::collections::HashMap;
 
 use crate::{cece_dir, db::config, db::repo, db::workspace, git, open_db};
@@ -72,41 +72,13 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
         anyhow::bail!("no repos selected");
     }
 
-    // Determine branch name
-    let branch = match branch_override {
-        Some(b) => b,
-        None => {
-            let template = config::get(&db, "branch_template")?
-                .unwrap_or_else(|| "{initials}-{ticket}-{desc}".to_string());
+    if workspace::get_by_name(&db, name).is_ok() {
+        anyhow::bail!("a workspace named '{}' already exists", name);
+    }
 
-            if template.contains('{') {
-                let saved_initials = config::get(&db, "initials")?.unwrap_or_default();
-                let mut initials_prompt = Input::new().with_prompt("Your initials");
-                if !saved_initials.is_empty() {
-                    initials_prompt = initials_prompt.default(saved_initials.clone());
-                }
-                let initials: String = initials_prompt.interact_text()?;
-                if initials != saved_initials {
-                    config::set(&db, "initials", &initials)?;
-                }
-
-                let ticket: String = Input::new()
-                    .with_prompt("Ticket number")
-                    .allow_empty(true)
-                    .interact_text()?;
-                let desc: String = Input::new()
-                    .with_prompt("Short description")
-                    .interact_text()?;
-                let mut vars = HashMap::new();
-                vars.insert("initials", initials.as_str());
-                vars.insert("ticket", ticket.as_str());
-                vars.insert("desc", desc.as_str());
-                git::expand_branch_template(&template, &vars)
-            } else {
-                template
-            }
-        }
-    };
+    // Determine branch target, retrying interactively on worktree conflicts.
+    let first_repo = std::path::Path::new(&repo_paths[0]);
+    let branch_target = resolve_branch(&db, first_repo, &repo_paths, branch_override)?;
 
     let ws_id = workspace::create(&db, name)?;
     let ws_dir = cece_dir()?.join("workspaces").join(name);
@@ -119,13 +91,14 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
             .unwrap_or_else(|| "repo".to_string());
         let worktree_path = ws_dir.join(&repo_name);
 
-        git::worktree_add(repo_path, &worktree_path, &branch)?;
+        git::worktree_add(repo_path, &worktree_path, &branch_target)?;
         workspace::add_repo(
             &db,
             ws_id,
             repo_path_str,
-            &branch,
+            branch_target.name(),
             &worktree_path.to_string_lossy(),
+            branch_target.is_new(),
         )?;
         repo::add(&db, repo_path_str)?;
 
@@ -150,9 +123,17 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
         };
         let surface_id = crate::cmux::open_surface(&cmux_id, &start_dir)?;
         workspace::set_cmux_surface_id(&db, ws_id, &surface_id)?;
-        println!("Workspace '{}' created (branch: {}) — Cmux workspace opened.", name, branch);
+        println!(
+            "Workspace '{}' created (branch: {}) — Cmux workspace opened.",
+            name,
+            branch_target.name()
+        );
     } else {
-        println!("Workspace '{}' created (branch: {}).", name, branch);
+        println!(
+            "Workspace '{}' created (branch: {}).",
+            name,
+            branch_target.name()
+        );
     }
     Ok(())
 }
@@ -189,6 +170,146 @@ fn list() -> Result<()> {
     Ok(())
 }
 
+/// Determine the branch target, handling worktree conflicts with interactive retry.
+/// If `branch_override` is given and conflicts, fails immediately (non-interactive).
+fn resolve_branch(
+    db: &crate::db::Database,
+    first_repo: &std::path::Path,
+    repo_paths: &[String],
+    branch_override: Option<String>,
+) -> Result<git::BranchTarget> {
+    loop {
+        let candidate = match &branch_override {
+            Some(b) => {
+                if git::branch_exists(first_repo, b) {
+                    git::BranchTarget::Existing(b.clone())
+                } else {
+                    git::BranchTarget::New(b.clone())
+                }
+            }
+            None => pick_branch_interactive(db, first_repo)?,
+        };
+
+        // Only existing branches can conflict — new branches don't exist yet.
+        if let git::BranchTarget::New(_) = &candidate {
+            return Ok(candidate);
+        }
+
+        // Check all repos for an existing worktree on this branch.
+        let conflict = repo_paths.iter().find_map(|rp| {
+            git::find_worktree_for_branch(std::path::Path::new(rp), candidate.name())
+                .ok()
+                .flatten()
+        });
+
+        match conflict {
+            None => return Ok(candidate),
+            Some(conflict_path) => {
+                // See if it belongs to a cece workspace.
+                let existing_ws = workspace::find_by_worktree(db, &conflict_path)?;
+                match existing_ws {
+                    Some(ws) => {
+                        eprintln!(
+                            "Branch '{}' is already used by workspace '{}'.",
+                            candidate.name(),
+                            ws.name
+                        );
+                        if branch_override.is_some() {
+                            anyhow::bail!("cannot create workspace: branch already in use");
+                        }
+                        if Confirm::new()
+                            .with_prompt(format!("Switch to workspace '{}' instead?", ws.name))
+                            .default(true)
+                            .interact()?
+                        {
+                            switch(&ws.name)?;
+                            std::process::exit(0);
+                        }
+                        // Otherwise loop back to branch selection.
+                    }
+                    None => {
+                        eprintln!(
+                            "Branch '{}' is already checked out at '{}' (not a cece workspace).",
+                            candidate.name(),
+                            conflict_path.display()
+                        );
+                        if branch_override.is_some() {
+                            anyhow::bail!("cannot create workspace: branch already checked out");
+                        }
+                        eprintln!("Please choose a different branch.");
+                        // Loop back to branch selection.
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Interactively pick a branch: FuzzySelect from existing branches plus a "new branch" option.
+/// Defaults to "[ new branch ]". Main/master appears at the top of existing branches.
+fn pick_branch_interactive(
+    db: &crate::db::Database,
+    repo_path: &std::path::Path,
+) -> Result<git::BranchTarget> {
+    let branches = git::list_branches(repo_path).unwrap_or_default();
+    let default_branch =
+        git::detect_default_branch(repo_path).unwrap_or_else(|_| "main".to_string());
+
+    const NEW_BRANCH_ITEM: &str = "[ new branch ]";
+    let mut items = vec![NEW_BRANCH_ITEM.to_string()];
+    // Default branch (main/master) first, then the rest alphabetically.
+    if branches.contains(&default_branch) {
+        items.push(default_branch.clone());
+    }
+    items.extend(branches.iter().filter(|b| *b != &default_branch).cloned());
+
+    let selection = FuzzySelect::new()
+        .with_prompt("Branch")
+        .items(&items)
+        .default(0) // default to "[ new branch ]"
+        .interact()?;
+
+    if selection == 0 {
+        Ok(git::BranchTarget::New(prompt_new_branch(db)?))
+    } else {
+        Ok(git::BranchTarget::Existing(items[selection].clone()))
+    }
+}
+
+/// Prompt the user to name a new branch using the configured template.
+fn prompt_new_branch(db: &crate::db::Database) -> Result<String> {
+    let template = config::get(db, "branch_template")?
+        .unwrap_or_else(|| "{initials}-{ticket}-{desc}".to_string());
+
+    if !template.contains('{') {
+        return Ok(template);
+    }
+
+    let saved_initials = config::get(db, "initials")?.unwrap_or_default();
+    let mut initials_prompt = Input::new().with_prompt("Your initials");
+    if !saved_initials.is_empty() {
+        initials_prompt = initials_prompt.default(saved_initials.clone());
+    }
+    let initials: String = initials_prompt.interact_text()?;
+    if initials != saved_initials {
+        config::set(db, "initials", &initials)?;
+    }
+
+    let ticket: String = Input::new()
+        .with_prompt("Ticket number")
+        .allow_empty(true)
+        .interact_text()?;
+    let desc: String = Input::new()
+        .with_prompt("Short description")
+        .interact_text()?;
+
+    let mut vars = HashMap::new();
+    vars.insert("initials", initials.as_str());
+    vars.insert("ticket", ticket.as_str());
+    vars.insert("desc", desc.as_str());
+    Ok(git::expand_branch_template(&template, &vars))
+}
+
 fn delete(name: &str) -> Result<()> {
     let db = open_db()?;
     let ws = workspace::get_by_name(&db, name)?;
@@ -198,8 +319,11 @@ fn delete(name: &str) -> Result<()> {
         let repo_path = std::path::Path::new(&r.repo_path);
         let worktree_path = std::path::Path::new(&r.worktree_path);
         git::worktree_remove(repo_path, worktree_path)?;
-        git::delete_branch(repo_path, &r.branch)
-            .unwrap_or_else(|e| eprintln!("warning: could not delete branch '{}': {e}", r.branch));
+        if r.branch_new {
+            git::delete_branch(repo_path, &r.branch).unwrap_or_else(|e| {
+                eprintln!("warning: could not delete branch '{}': {e}", r.branch)
+            });
+        }
     }
 
     let ws_dir = cece_dir()?.join("workspaces").join(name);

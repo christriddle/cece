@@ -17,6 +17,9 @@ pub struct WorkspaceRepo {
     pub repo_path: String,
     pub branch: String,
     pub worktree_path: String,
+    /// Whether this branch was freshly created for this workspace (vs an existing branch).
+    /// Only freshly-created branches are deleted when the workspace is removed.
+    pub branch_new: bool,
 }
 
 pub fn create(db: &Database, name: &str) -> Result<i64> {
@@ -122,18 +125,25 @@ pub fn add_repo(
     repo_path: &str,
     branch: &str,
     worktree_path: &str,
+    branch_new: bool,
 ) -> Result<()> {
     db.conn().execute(
-        "INSERT INTO workspace_repos (workspace_id, repo_path, branch, worktree_path)
-         VALUES (?1, ?2, ?3, ?4)",
-        (workspace_id, repo_path, branch, worktree_path),
+        "INSERT INTO workspace_repos (workspace_id, repo_path, branch, worktree_path, branch_new)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        (
+            workspace_id,
+            repo_path,
+            branch,
+            worktree_path,
+            branch_new as i64,
+        ),
     )?;
     Ok(())
 }
 
 pub fn get_repos(db: &Database, workspace_id: i64) -> Result<Vec<WorkspaceRepo>> {
     let mut stmt = db.conn().prepare(
-        "SELECT id, workspace_id, repo_path, branch, worktree_path
+        "SELECT id, workspace_id, repo_path, branch, worktree_path, branch_new
          FROM workspace_repos WHERE workspace_id = ?1",
     )?;
     let rows = stmt.query_map([workspace_id], |r| {
@@ -143,6 +153,7 @@ pub fn get_repos(db: &Database, workspace_id: i64) -> Result<Vec<WorkspaceRepo>>
             repo_path: r.get(2)?,
             branch: r.get(3)?,
             worktree_path: r.get(4)?,
+            branch_new: r.get::<_, i64>(5)? != 0,
         })
     })?;
     rows.map(|r| r.map_err(Into::into)).collect()
@@ -188,7 +199,15 @@ mod tests {
     fn test_add_and_get_repos() {
         let db = Database::open_in_memory().unwrap();
         let ws_id = create(&db, "ws").unwrap();
-        add_repo(&db, ws_id, "/repos/frontend", "main", "/cece/ws/frontend").unwrap();
+        add_repo(
+            &db,
+            ws_id,
+            "/repos/frontend",
+            "main",
+            "/cece/ws/frontend",
+            false,
+        )
+        .unwrap();
         let repos = get_repos(&db, ws_id).unwrap();
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].branch, "main");

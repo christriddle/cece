@@ -32,17 +32,20 @@ impl Database {
     fn run_migrations(&self) -> Result<()> {
         self.conn.execute_batch(include_str!("schema.sql"))?;
         // Add columns introduced after initial release (ignored if already present)
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE workspaces ADD COLUMN cmux_workspace_id TEXT;");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE workspaces ADD COLUMN cmux_surface_id TEXT;");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE agents ADD COLUMN claude_session_id TEXT;");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE agents ADD COLUMN last_response TEXT;");
         let _ = self.conn.execute_batch(
-            "ALTER TABLE workspaces ADD COLUMN cmux_workspace_id TEXT;",
-        );
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE workspaces ADD COLUMN cmux_surface_id TEXT;",
-        );
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE agents ADD COLUMN claude_session_id TEXT;",
-        );
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE agents ADD COLUMN last_response TEXT;",
+            "ALTER TABLE workspace_repos ADD COLUMN branch_new INTEGER NOT NULL DEFAULT 1;",
         );
         Ok(())
     }

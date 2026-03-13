@@ -18,7 +18,9 @@ fn send_request(method: &str, params: Value) -> Result<Value> {
 
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
-    reader.read_line(&mut line).context("no response from cmux")?;
+    reader
+        .read_line(&mut line)
+        .context("no response from cmux")?;
 
     let resp: Value =
         serde_json::from_str(line.trim()).context("invalid JSON response from cmux")?;
@@ -46,7 +48,11 @@ fn list_surface_ids() -> Result<Vec<String>> {
         .and_then(|s| s.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|s| s.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                .filter_map(|s| {
+                    s.get("id")
+                        .and_then(|id| id.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect()
         })
         .unwrap_or_default())
