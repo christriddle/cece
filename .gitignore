@@ -1,1 +1,4 @@
-.idea/
+/target
+# Cargo.lock is committed for binary crates — do not add it here
+.DS_Store
+*.db
