@@ -80,7 +80,16 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
                 .unwrap_or_else(|| "{initials}-{ticket}-{desc}".to_string());
 
             if template.contains('{') {
-                let initials: String = Input::new().with_prompt("Your initials").interact_text()?;
+                let saved_initials = config::get(&db, "initials")?.unwrap_or_default();
+                let mut initials_prompt = Input::new().with_prompt("Your initials");
+                if !saved_initials.is_empty() {
+                    initials_prompt = initials_prompt.default(saved_initials.clone());
+                }
+                let initials: String = initials_prompt.interact_text()?;
+                if initials != saved_initials {
+                    config::set(&db, "initials", &initials)?;
+                }
+
                 let ticket: String = Input::new()
                     .with_prompt("Ticket number")
                     .allow_empty(true)
