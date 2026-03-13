@@ -124,11 +124,11 @@ fn register_event_hooks(
         !entry
             .get("hooks")
             .and_then(|h| h.as_array())
-            .map_or(false, |hooks| {
+            .is_some_and(|hooks| {
                 hooks.iter().any(|h| {
                     h.get("command")
                         .and_then(|c| c.as_str())
-                        .map_or(false, |cmd| cmd.contains(marker))
+                        .is_some_and(|cmd| cmd.contains(marker))
                 })
             })
     });
