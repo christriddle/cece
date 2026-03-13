@@ -168,8 +168,7 @@ fn delete(name: &str) -> Result<()> {
         let repo_path = std::path::Path::new(&r.repo_path);
         let worktree_path = std::path::Path::new(&r.worktree_path);
         if worktree_path.exists() {
-            git::worktree_remove(repo_path, worktree_path)
-                .unwrap_or_else(|e| eprintln!("warning: {e}"));
+            git::worktree_remove(repo_path, worktree_path)?;
         }
     }
 
