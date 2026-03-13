@@ -148,6 +148,11 @@ pub fn new_agent_tab(
     Ok(new_surface_id)
 }
 
+/// Close a surface. Ignores errors (e.g. surface already gone).
+pub fn close_surface(surface_id: &str) {
+    let _ = send_request("surface.close", json!({"surface_id": surface_id}));
+}
+
 /// Focus an existing agent surface using its stored surface ID.
 pub fn select_agent_tab(surface_id: &str) -> Result<()> {
     send_request("surface.focus", json!({"surface_id": surface_id}))

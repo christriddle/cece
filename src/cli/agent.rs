@@ -130,6 +130,15 @@ fn delete(name: &str, workspace_arg: Option<String>) -> Result<()> {
     let db = open_db()?;
     let workspace_name = resolve_workspace(&db, workspace_arg)?;
     let ws = workspace::get_by_name(&db, &workspace_name)?;
+    let a = agent::get_by_name(&db, name, ws.id)?;
+
+    if let Some(surface_id) = a.session_id.as_deref() {
+        let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
+        if cmux_enabled {
+            crate::cmux::close_surface(surface_id);
+        }
+    }
+
     agent::delete(&db, name, ws.id)?;
     println!("Agent '{}' deleted.", name);
     Ok(())
