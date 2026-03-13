@@ -86,6 +86,36 @@ pub fn delete(db: &Database, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Find the workspace whose worktree contains the given path (exact or ancestor match).
+pub fn find_by_worktree(db: &Database, cwd: &std::path::Path) -> Result<Option<Workspace>> {
+    let mut stmt = db.conn().prepare(
+        "SELECT w.id, w.name, w.cmux_workspace_id, w.cmux_surface_id, w.created_at
+         FROM workspaces w
+         JOIN workspace_repos wr ON wr.workspace_id = w.id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(Workspace {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            cmux_workspace_id: r.get(2)?,
+            cmux_surface_id: r.get(3)?,
+            created_at: r.get(4)?,
+        })
+    })?;
+    // Return the first workspace whose worktree path is a prefix of cwd.
+    for row in rows {
+        let ws = row?;
+        let repos = get_repos(db, ws.id)?;
+        for repo in &repos {
+            let wt = std::path::Path::new(&repo.worktree_path);
+            if cwd.starts_with(wt) {
+                return Ok(Some(ws));
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub fn add_repo(
     db: &Database,
     workspace_id: i64,
