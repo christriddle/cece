@@ -813,6 +813,16 @@ original clone listed in the Origin column. This means:
 - Keep changes focused on the branch for this workspace. Avoid switching branches inside a
   worktree; create a new workspace instead.
 
+## Shell Commands
+
+**Never combine `cd` with other commands** using `&&` or `;` (e.g. `cd foo && git status`).
+This triggers security prompts for bare repository attacks. Instead, use separate commands
+or pass `-C` to git:
+
+- `git -C <repo-dir> status` instead of `cd <repo-dir> && git status`
+- Run `cd` as its own command, then run the next command separately
+- For non-git tools, use absolute paths or set the working directory explicitly
+
 ## Plans
 
 If you create implementation plans, design docs, or other working documents, put them in the
