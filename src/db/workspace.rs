@@ -142,6 +142,35 @@ pub fn add_repo(
     Ok(())
 }
 
+pub fn remove_repo(db: &Database, workspace_id: i64, repo_path: &str) -> Result<WorkspaceRepo> {
+    let mut stmt = db.conn().prepare(
+        "SELECT id, workspace_id, repo_path, branch, worktree_path, branch_new
+         FROM workspace_repos WHERE workspace_id = ?1 AND repo_path = ?2",
+    )?;
+    let record = stmt
+        .query_row((workspace_id, repo_path), |r| {
+            Ok(WorkspaceRepo {
+                id: r.get(0)?,
+                workspace_id: r.get(1)?,
+                repo_path: r.get(2)?,
+                branch: r.get(3)?,
+                worktree_path: r.get(4)?,
+                branch_new: r.get::<_, i64>(5)? != 0,
+            })
+        })
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                CeceError::RepoNotFoundInWorkspace(repo_path.to_string())
+            }
+            other => CeceError::Database(other),
+        })?;
+
+    db.conn()
+        .execute("DELETE FROM workspace_repos WHERE id = ?1", [record.id])?;
+
+    Ok(record)
+}
+
 pub fn get_repos(db: &Database, workspace_id: i64) -> Result<Vec<WorkspaceRepo>> {
     let mut stmt = db.conn().prepare(
         "SELECT id, workspace_id, repo_path, branch, worktree_path, branch_new
@@ -239,6 +268,45 @@ mod tests {
         // Completely unrelated path — no match.
         let found = find_by_worktree(&db, std::path::Path::new("/other/path")).unwrap();
         assert!(found.is_none());
+    }
+
+    #[test]
+    fn test_remove_repo() {
+        let db = Database::open_in_memory().unwrap();
+        let ws_id = create(&db, "ws").unwrap();
+        add_repo(
+            &db,
+            ws_id,
+            "/repos/frontend",
+            "main",
+            "/cece/ws/frontend",
+            false,
+        )
+        .unwrap();
+        add_repo(
+            &db,
+            ws_id,
+            "/repos/backend",
+            "main",
+            "/cece/ws/backend",
+            false,
+        )
+        .unwrap();
+
+        let removed = remove_repo(&db, ws_id, "/repos/frontend").unwrap();
+        assert_eq!(removed.repo_path, "/repos/frontend");
+
+        let remaining = get_repos(&db, ws_id).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].repo_path, "/repos/backend");
+    }
+
+    #[test]
+    fn test_remove_repo_nonexistent_errors() {
+        let db = Database::open_in_memory().unwrap();
+        let ws_id = create(&db, "ws").unwrap();
+        let result = remove_repo(&db, ws_id, "/repos/ghost");
+        assert!(matches!(result, Err(CeceError::RepoNotFoundInWorkspace(_))));
     }
 
     #[test]

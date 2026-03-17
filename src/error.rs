@@ -16,6 +16,8 @@ pub enum CeceError {
     NotInitialized,
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
+    #[error("repo '{0}' not found in workspace")]
+    RepoNotFoundInWorkspace(String),
     #[error("git error: {0}")]
     Git(String),
     #[error("cmux error: {0}")]
