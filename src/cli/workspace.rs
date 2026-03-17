@@ -298,10 +298,11 @@ fn info(name_arg: Option<String>) -> Result<()> {
     if agents.is_empty() {
         println!("Agents: (none)");
     } else {
-        let mut table = styled_table(&["Agent", "Last Request"]);
+        let mut table = styled_table(&["Agent", "Session", "Last Request"]);
         for a in &agents {
             table.add_row([
                 Cell::new(&a.name).fg(Color::Green),
+                Cell::new(a.claude_session_id.as_deref().unwrap_or("—")),
                 Cell::new(
                     a.last_request
                         .as_deref()

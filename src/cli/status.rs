@@ -33,11 +33,12 @@ pub fn handle_status() -> Result<()> {
 
         let agents = agent::list(&db, ws.id)?;
         if !agents.is_empty() {
-            let mut agent_table = styled_table(&["Agent", "Last Request"]);
+            let mut agent_table = styled_table(&["Agent", "Last Request", "Last Response"]);
             for a in &agents {
                 agent_table.add_row([
                     Cell::new(&a.name).fg(Color::Green),
                     Cell::new(a.last_request.as_deref().unwrap_or("—")),
+                    Cell::new(a.last_response.as_deref().unwrap_or("—")),
                 ]);
             }
             println!("{agent_table}");

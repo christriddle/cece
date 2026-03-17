@@ -13,13 +13,14 @@ pub fn handle_list() -> Result<()> {
         return Ok(());
     }
 
-    let mut table = styled_table(&["Workspace", "Agent", "Last Request"]);
+    let mut table = styled_table(&["Workspace", "Agent", "Last Request", "Last Response"]);
 
     for ws in &workspaces {
         let agents = agent::list(&db, ws.id)?;
         if agents.is_empty() {
             table.add_row([
                 Cell::new(&ws.name).fg(Color::Cyan),
+                Cell::new("—"),
                 Cell::new("—"),
                 Cell::new("—"),
             ]);
@@ -34,6 +35,7 @@ pub fn handle_list() -> Result<()> {
                     ws_cell,
                     Cell::new(&a.name).fg(Color::Green),
                     Cell::new(a.last_request.as_deref().unwrap_or("—")),
+                    Cell::new(a.last_response.as_deref().unwrap_or("—")),
                 ]);
             }
         }

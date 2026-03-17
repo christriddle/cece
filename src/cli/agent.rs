@@ -122,11 +122,12 @@ fn list(workspace_arg: Option<String>) -> Result<()> {
         return Ok(());
     }
 
-    let mut table = styled_table(&["Name", "Last Request"]);
+    let mut table = styled_table(&["Name", "Last Request", "Last Response"]);
     for a in &agents {
         table.add_row([
             Cell::new(&a.name).fg(Color::Green),
             Cell::new(a.last_request.as_deref().unwrap_or("—")),
+            Cell::new(a.last_response.as_deref().unwrap_or("—")),
         ]);
     }
     println!("{table}");
