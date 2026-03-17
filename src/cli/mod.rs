@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 use comfy_table::presets::NOTHING;
-use comfy_table::{Attribute, Cell, Color, Table};
+use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 
 pub mod agent;
 pub mod hook;
@@ -11,10 +11,15 @@ pub mod status;
 pub mod template;
 pub mod workspace;
 
-/// Create a styled table with no borders, dimmed headers.
+/// Create a styled table with no borders, dimmed headers, constrained to terminal width.
 pub(crate) fn styled_table(headers: &[&str]) -> Table {
     let mut table = Table::new();
     table.load_preset(NOTHING);
+    table.set_content_arrangement(ContentArrangement::DynamicFullWidth);
+    let width = terminal_size::terminal_size()
+        .map(|(w, _)| w.0)
+        .unwrap_or(120);
+    table.set_width(width);
     table.set_header(headers.iter().map(|h| {
         Cell::new(h)
             .fg(Color::DarkGrey)
