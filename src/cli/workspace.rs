@@ -4,7 +4,7 @@ use comfy_table::{Cell, Table};
 use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
 use std::collections::HashMap;
 
-use crate::{cece_dir, db::config, db::repo, db::workspace, git, open_db};
+use crate::{cece_dir, db::config, db::repo, db::template, db::workspace, git, open_db};
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommands {
@@ -17,6 +17,9 @@ pub enum WorkspaceCommands {
         /// Branch name override (skips template expansion)
         #[arg(long)]
         branch: Option<String>,
+        /// Use a saved workspace template for repos and branch pattern
+        #[arg(long)]
+        template: Option<String>,
     },
     /// List all workspaces
     List,
@@ -44,7 +47,8 @@ pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
             name,
             repos,
             branch,
-        } => create(&name, repos, branch),
+            template,
+        } => create(&name, repos, branch, template),
         WorkspaceCommands::List => list(),
         WorkspaceCommands::Delete { name } => delete(&name),
         WorkspaceCommands::Switch { name } => switch(&name),
@@ -62,8 +66,23 @@ struct RepoBranch {
     branch: git::BranchTarget,
 }
 
-fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<String>) -> Result<()> {
+fn create(
+    name: &str,
+    mut repo_paths: Vec<String>,
+    branch_override: Option<String>,
+    template_name: Option<String>,
+) -> Result<()> {
     let db = open_db()?;
+
+    let template_branch = if let Some(ref tpl_name) = template_name {
+        let tpl = template::get_by_name(&db, tpl_name)?;
+        if repo_paths.is_empty() {
+            repo_paths = tpl.repo_paths;
+        }
+        Some(tpl.branch_template)
+    } else {
+        None
+    };
 
     // Gather repos interactively if not provided
     if repo_paths.is_empty() {
@@ -103,7 +122,12 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
     }
 
     // Resolve branches per-repo.
-    let repo_branches = resolve_branches_per_repo(&db, &repo_paths, branch_override)?;
+    let repo_branches = resolve_branches_per_repo(
+        &db,
+        &repo_paths,
+        branch_override,
+        template_branch.as_deref(),
+    )?;
 
     let ws_id = workspace::create(&db, name)?;
     let ws_dir = cece_dir()?.join("workspaces").join(name);
@@ -210,11 +234,18 @@ fn resolve_branches_per_repo(
     db: &crate::db::Database,
     repo_paths: &[String],
     branch_override: Option<String>,
+    branch_template_override: Option<&str>,
 ) -> Result<Vec<RepoBranch>> {
     if let Some(ref b) = branch_override {
         // Non-interactive: all repos share the overridden branch.
         let first_repo = std::path::Path::new(&repo_paths[0]);
-        let target = resolve_branch_for_repo(db, first_repo, repo_paths, &branch_override)?;
+        let target = resolve_branch_for_repo(
+            db,
+            first_repo,
+            repo_paths,
+            &branch_override,
+            branch_template_override,
+        )?;
         return Ok(repo_paths
             .iter()
             .map(|p| RepoBranch {
@@ -248,8 +279,14 @@ fn resolve_branches_per_repo(
 
         if i == 0 {
             // First repo: full branch picker.
-            let branch = resolve_branch_for_repo(db, repo_path, repo_paths, &None)?
-                .expect("branch selection should not be empty");
+            let branch = resolve_branch_for_repo(
+                db,
+                repo_path,
+                repo_paths,
+                &None,
+                branch_template_override,
+            )?
+            .expect("branch selection should not be empty");
             result.push(RepoBranch {
                 path: repo_path_str.clone(),
                 branch,
@@ -257,7 +294,13 @@ fn resolve_branches_per_repo(
         } else {
             // Subsequent repos: offer "same as first" plus full picker.
             let first = &result[0].branch;
-            let branch = pick_branch_for_subsequent_repo(db, repo_path, &repo_name, first)?;
+            let branch = pick_branch_for_subsequent_repo(
+                db,
+                repo_path,
+                &repo_name,
+                first,
+                branch_template_override,
+            )?;
             result.push(RepoBranch {
                 path: repo_path_str.clone(),
                 branch,
@@ -274,6 +317,7 @@ fn resolve_branch_for_repo(
     repo_path: &std::path::Path,
     all_repo_paths: &[String],
     branch_override: &Option<String>,
+    branch_template_override: Option<&str>,
 ) -> Result<Option<git::BranchTarget>> {
     loop {
         let candidate = match branch_override {
@@ -287,7 +331,7 @@ fn resolve_branch_for_repo(
                     }
                 }
             }
-            None => pick_branch_interactive(db, repo_path)?,
+            None => pick_branch_interactive(db, repo_path, branch_template_override)?,
         };
 
         if let git::BranchTarget::New { .. } = &candidate {
@@ -347,6 +391,7 @@ fn pick_branch_for_subsequent_repo(
     repo_path: &std::path::Path,
     repo_name: &str,
     first_branch: &git::BranchTarget,
+    branch_template_override: Option<&str>,
 ) -> Result<git::BranchTarget> {
     let same_label = format!("[ same branch - {} ]", first_branch.name());
 
@@ -401,13 +446,13 @@ fn pick_branch_for_subsequent_repo(
     } else if items[selection] == new_from_main {
         eprintln!("Fetching latest {} from origin...", default_branch);
         git::fetch_origin(repo_path)?;
-        let name = prompt_new_branch(db)?;
+        let name = prompt_new_branch(db, branch_template_override)?;
         Ok(git::BranchTarget::New {
             name,
             start_point: Some(format!("origin/{}", default_branch)),
         })
     } else if items[selection] == new_from_current {
-        let name = prompt_new_branch(db)?;
+        let name = prompt_new_branch(db, branch_template_override)?;
         Ok(git::BranchTarget::New {
             name,
             start_point: None,
@@ -423,6 +468,7 @@ fn pick_branch_for_subsequent_repo(
 fn pick_branch_interactive(
     db: &crate::db::Database,
     repo_path: &std::path::Path,
+    branch_template_override: Option<&str>,
 ) -> Result<git::BranchTarget> {
     let branches = git::list_branches(repo_path).unwrap_or_default();
     let default_branch =
@@ -448,13 +494,13 @@ fn pick_branch_interactive(
     if items[selection] == new_from_main {
         eprintln!("Fetching latest {} from origin...", default_branch);
         git::fetch_origin(repo_path)?;
-        let name = prompt_new_branch(db)?;
+        let name = prompt_new_branch(db, branch_template_override)?;
         Ok(git::BranchTarget::New {
             name,
             start_point: Some(format!("origin/{}", default_branch)),
         })
     } else if items[selection] == new_from_current {
-        let name = prompt_new_branch(db)?;
+        let name = prompt_new_branch(db, branch_template_override)?;
         Ok(git::BranchTarget::New {
             name,
             start_point: None,
@@ -465,9 +511,12 @@ fn pick_branch_interactive(
 }
 
 /// Prompt the user to name a new branch using the configured template.
-fn prompt_new_branch(db: &crate::db::Database) -> Result<String> {
-    let template = config::get(db, "branch_template")?
-        .unwrap_or_else(|| "{initials}-{ticket}-{desc}".to_string());
+fn prompt_new_branch(db: &crate::db::Database, template_override: Option<&str>) -> Result<String> {
+    let template = match template_override {
+        Some(t) => t.to_string(),
+        None => config::get(db, "branch_template")?
+            .unwrap_or_else(|| "{initials}-{ticket}-{desc}".to_string()),
+    };
 
     if !template.contains('{') {
         return Ok(template);
@@ -682,7 +731,7 @@ fn add_repo_cmd(
     }
 
     // Resolve branches per-repo.
-    let repo_branches = resolve_branches_per_repo(&db, &repo_paths, branch_override)?;
+    let repo_branches = resolve_branches_per_repo(&db, &repo_paths, branch_override, None)?;
 
     for rb in &repo_branches {
         let repo_path = std::path::Path::new(&rb.path);
