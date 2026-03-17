@@ -6,11 +6,15 @@ Each workspace is a named collection of Git worktrees (one per repo) and Claude 
 
 ## Features
 
-- **Workspaces** — group multiple repos together under a named workspace, each checked out as a Git worktree on a shared branch
+- **Workspaces** — group multiple repos together under a named workspace, each checked out as a Git worktree with per-repo branch selection
 - **Branch templates** — configure a naming convention once (`{initials}-{ticket}-{desc}`), fill in the blanks at creation time
+- **Per-repo branches** — each repo in a workspace can use a different branch, with "new from main" (fetches origin) or "new from current" options
 - **Agents** — attach Claude Code agents to a workspace, track their session and last activity
 - **Status dashboard** — see all workspaces, repos, and agent activity at a glance
-- **Workspace templates** — save repo sets and branch patterns as reusable named templates
+- **Workspace templates** — save repo sets and branch patterns as reusable named templates, use them with `--template`
+- **Workspace CLAUDE.md** — auto-generated instructions for Claude Code agents explaining the repo layout, worktree mechanics, and plans directory
+- **Permissive agent settings** — auto-generated `.claude/settings.json` with sensible tool permissions (skip with `--no-settings`)
+- **Editor integration** — open worktrees in IntelliJ IDEA, Zed, VS Code, or Cursor
 - **Cmux integration** — switch workspaces and open agent tabs directly in Cmux
 - **Shell completions** — tab-complete workspace and agent names in bash, zsh, or fish
 
@@ -74,9 +78,16 @@ cece ws create my-feature          # interactive: select repos, fill in branch t
 cece ws create my-feature \
   --repos ~/dev/api ~/dev/web \
   --branch cr-OPEN-123-auth-fix    # non-interactive
+cece ws create my-feature \
+  --template feature-ticket        # use a saved template for repos + branch pattern
+cece ws create my-feature \
+  --no-settings                    # skip generating .claude/settings.json
 
+cece ws info my-feature            # show workspace details (repos, branches, agents)
 cece ws list                       # list all workspaces
 cece ws switch my-feature          # cd to workspace dir, or switch Cmux workspace
+cece ws add-repo --workspace my-feature  # add repos to an existing workspace
+cece ws remove-repo --workspace my-feature  # remove a repo from a workspace
 cece ws delete my-feature          # remove worktrees and DB record
 ```
 
@@ -99,6 +110,15 @@ cece template list
 cece template delete feature-ticket
 ```
 
+### Editors
+
+```bash
+cece idea     # open current worktree in IntelliJ IDEA
+cece zed      # open current worktree in Zed
+cece code     # open current worktree in VS Code
+cece cursor   # open current worktree in Cursor
+```
+
 ### Status
 
 ```bash
@@ -109,7 +129,9 @@ cece status   # show all workspaces, their repos, agents, and last activity
 
 - All state is stored in `~/.cece/cece.db` (SQLite)
 - Each workspace repo is a [Git worktree](https://git-scm.com/docs/git-worktree) checked out to `~/.cece/workspaces/<workspace>/<repo>/`
-- Agent activity is tracked by reading Claude Code's session files at `~/.claude/projects/`
+- Each workspace gets a `CLAUDE.md` describing the repo layout and a `plans/` directory for working documents
+- Each workspace gets `.claude/settings.json` with permissive tool permissions for agents (disable with `--no-settings`)
+- Agent activity is tracked via Claude Code hooks (SessionStart, UserPromptSubmit, Stop)
 - Cmux integration works via the `cmux` CLI (`cmux select-workspace`, `cmux new-tab`, `cmux select-tab`)
 
 ## License

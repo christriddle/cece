@@ -20,6 +20,9 @@ pub enum WorkspaceCommands {
         /// Use a saved workspace template for repos and branch pattern
         #[arg(long)]
         template: Option<String>,
+        /// Skip generating .claude/settings.json with permissive tool permissions
+        #[arg(long)]
+        no_settings: bool,
     },
     /// List all workspaces
     List,
@@ -61,7 +64,8 @@ pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
             repos,
             branch,
             template,
-        } => create(&name, repos, branch, template),
+            no_settings,
+        } => create(&name, repos, branch, template, no_settings),
         WorkspaceCommands::List => list(),
         WorkspaceCommands::Delete { name } => delete(&name),
         WorkspaceCommands::Switch { name } => switch(&name),
@@ -86,6 +90,7 @@ fn create(
     mut repo_paths: Vec<String>,
     branch_override: Option<String>,
     template_name: Option<String>,
+    no_settings: bool,
 ) -> Result<()> {
     let db = open_db()?;
 
@@ -180,6 +185,11 @@ fn create(
 
     // Generate CLAUDE.md for the workspace.
     write_workspace_claude_md(&ws_dir, name, &repo_branches)?;
+
+    // Generate .claude/settings.json with permissive tool permissions.
+    if !no_settings {
+        write_workspace_claude_settings(&ws_dir)?;
+    }
 
     let branch_summary = branch_names.join(", ");
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
@@ -727,6 +737,37 @@ artifacts out of version control and avoids polluting repo diffs.
 
     std::fs::create_dir_all(ws_dir.join("plans"))?;
 
+    Ok(())
+}
+
+/// Write .claude/settings.json with permissive tool permissions for agents.
+fn write_workspace_claude_settings(ws_dir: &std::path::Path) -> Result<()> {
+    let claude_dir = ws_dir.join(".claude");
+    std::fs::create_dir_all(&claude_dir)?;
+
+    let settings = serde_json::json!({
+        "permissions": {
+            "allow": [
+                "Bash(git *)",
+                "Bash(./gradlew *)",
+                "Bash(cd *)",
+                "Bash(grep *)",
+                "Bash(mkdir *)",
+                "Bash(ls *)",
+                "Bash(cat *)",
+                "Bash(python3 *)",
+                "Edit(*)",
+                "Write(*)",
+                "Agent(*)",
+                "mcp__claude_ai_Atlassian__*(*)",
+                "Skill(*)"
+            ]
+        }
+    });
+
+    let path = claude_dir.join("settings.json");
+    let content = serde_json::to_string_pretty(&settings)?;
+    std::fs::write(&path, content)?;
     Ok(())
 }
 
