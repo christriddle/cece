@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Subcommand;
 use comfy_table::{Cell, Table};
 use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
@@ -24,6 +24,18 @@ pub enum WorkspaceCommands {
     Delete { name: String },
     /// Switch to a workspace (prints path, or uses Cmux if configured)
     Switch { name: String },
+    /// Add repos to an existing workspace
+    AddRepo {
+        /// Workspace name. Inferred from current directory if omitted.
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Repo paths to add. If omitted, prompted interactively.
+        #[arg(num_args = 1..)]
+        repos: Vec<String>,
+        /// Branch name override (skips template expansion)
+        #[arg(long)]
+        branch: Option<String>,
+    },
 }
 
 pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
@@ -36,7 +48,18 @@ pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
         WorkspaceCommands::List => list(),
         WorkspaceCommands::Delete { name } => delete(&name),
         WorkspaceCommands::Switch { name } => switch(&name),
+        WorkspaceCommands::AddRepo {
+            workspace,
+            repos,
+            branch,
+        } => add_repo_cmd(workspace, repos, branch),
     }
+}
+
+/// A repo path paired with its resolved branch target.
+struct RepoBranch {
+    path: String,
+    branch: git::BranchTarget,
 }
 
 fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<String>) -> Result<()> {
@@ -58,11 +81,14 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
             for i in selections {
                 repo_paths.push(known[i].clone());
             }
-            let add_more: String = Input::new()
-                .with_prompt("Add another repo path (blank to skip)")
-                .allow_empty(true)
-                .interact_text()?;
-            if !add_more.is_empty() {
+            loop {
+                let add_more: String = Input::new()
+                    .with_prompt("Add another repo path (blank to skip)")
+                    .allow_empty(true)
+                    .interact_text()?;
+                if add_more.is_empty() {
+                    break;
+                }
                 repo_paths.push(add_more);
             }
         }
@@ -76,44 +102,53 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
         anyhow::bail!("a workspace named '{}' already exists", name);
     }
 
-    // Determine branch target, retrying interactively on worktree conflicts.
-    let first_repo = std::path::Path::new(&repo_paths[0]);
-    let branch_target = resolve_branch(&db, first_repo, &repo_paths, branch_override)?;
+    // Resolve branches per-repo.
+    let repo_branches = resolve_branches_per_repo(&db, &repo_paths, branch_override)?;
 
     let ws_id = workspace::create(&db, name)?;
     let ws_dir = cece_dir()?.join("workspaces").join(name);
 
-    for repo_path_str in &repo_paths {
-        let repo_path = std::path::Path::new(repo_path_str);
+    let mut branch_names: Vec<String> = Vec::new();
+    for rb in &repo_branches {
+        let repo_path = std::path::Path::new(&rb.path);
         let repo_name = repo_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "repo".to_string());
         let worktree_path = ws_dir.join(&repo_name);
 
-        git::worktree_add(repo_path, &worktree_path, &branch_target)?;
+        git::worktree_add(repo_path, &worktree_path, &rb.branch)?;
         workspace::add_repo(
             &db,
             ws_id,
-            repo_path_str,
-            branch_target.name(),
+            &rb.path,
+            rb.branch.name(),
             &worktree_path.to_string_lossy(),
-            branch_target.is_new(),
+            rb.branch.is_new(),
         )?;
-        repo::add(&db, repo_path_str)?;
+        repo::add(&db, &rb.path)?;
 
-        println!("  added {} → {}", repo_name, worktree_path.display());
+        println!(
+            "  added {} ({}) → {}",
+            repo_name,
+            rb.branch.name(),
+            worktree_path.display()
+        );
+        if !branch_names.contains(&rb.branch.name().to_string()) {
+            branch_names.push(rb.branch.name().to_string());
+        }
     }
 
+    // Generate CLAUDE.md for the workspace.
+    write_workspace_claude_md(&ws_dir, name, &repo_branches)?;
+
+    let branch_summary = branch_names.join(", ");
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
         let cmux_id = crate::cmux::create_workspace(name)?;
         workspace::set_cmux_id(&db, ws_id, &cmux_id)?;
-        // Open the command-center surface. With a single repo, land in the worktree
-        // directly; with multiple repos, land in the workspace root so all repos
-        // are visible as subdirectories.
-        let start_dir = if repo_paths.len() == 1 {
-            let repo_name = std::path::Path::new(&repo_paths[0])
+        let start_dir = if repo_branches.len() == 1 {
+            let repo_name = std::path::Path::new(&repo_branches[0].path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "repo".to_string());
@@ -124,15 +159,13 @@ fn create(name: &str, mut repo_paths: Vec<String>, branch_override: Option<Strin
         let surface_id = crate::cmux::open_surface(&cmux_id, &start_dir)?;
         workspace::set_cmux_surface_id(&db, ws_id, &surface_id)?;
         println!(
-            "Workspace '{}' created (branch: {}) — Cmux workspace opened.",
-            name,
-            branch_target.name()
+            "Workspace '{}' created (branches: {}) — Cmux workspace opened.",
+            name, branch_summary
         );
     } else {
         println!(
-            "Workspace '{}' created (branch: {}).",
-            name,
-            branch_target.name()
+            "Workspace '{}' created (branches: {}).",
+            name, branch_summary
         );
     }
     Ok(())
@@ -170,42 +203,107 @@ fn list() -> Result<()> {
     Ok(())
 }
 
-/// Determine the branch target, handling worktree conflicts with interactive retry.
-/// If `branch_override` is given and conflicts, fails immediately (non-interactive).
-fn resolve_branch(
+/// Resolve branch targets for each repo. With `--branch`, all repos share it.
+/// Interactively, the first repo gets a full branch picker; for subsequent repos
+/// "same branch" is offered as the default.
+fn resolve_branches_per_repo(
     db: &crate::db::Database,
-    first_repo: &std::path::Path,
     repo_paths: &[String],
     branch_override: Option<String>,
-) -> Result<git::BranchTarget> {
-    loop {
-        let candidate = match &branch_override {
-            Some(b) => {
-                if git::branch_exists(first_repo, b) {
+) -> Result<Vec<RepoBranch>> {
+    if let Some(ref b) = branch_override {
+        // Non-interactive: all repos share the overridden branch.
+        let first_repo = std::path::Path::new(&repo_paths[0]);
+        let target = resolve_branch_for_repo(db, first_repo, repo_paths, &branch_override)?;
+        return Ok(repo_paths
+            .iter()
+            .map(|p| RepoBranch {
+                path: p.clone(),
+                branch: if git::branch_exists(std::path::Path::new(p), b) {
                     git::BranchTarget::Existing(b.clone())
                 } else {
-                    git::BranchTarget::New(b.clone())
+                    git::BranchTarget::New {
+                        name: b.clone(),
+                        start_point: target
+                            .as_ref()
+                            .and_then(|t| match t {
+                                git::BranchTarget::New { start_point, .. } => start_point.clone(),
+                                _ => None,
+                            })
+                            .clone(),
+                    }
+                },
+            })
+            .collect());
+    }
+
+    let mut result: Vec<RepoBranch> = Vec::new();
+
+    for (i, repo_path_str) in repo_paths.iter().enumerate() {
+        let repo_path = std::path::Path::new(repo_path_str);
+        let repo_name = repo_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "repo".to_string());
+
+        if i == 0 {
+            // First repo: full branch picker.
+            let branch = resolve_branch_for_repo(db, repo_path, repo_paths, &None)?
+                .expect("branch selection should not be empty");
+            result.push(RepoBranch {
+                path: repo_path_str.clone(),
+                branch,
+            });
+        } else {
+            // Subsequent repos: offer "same as first" plus full picker.
+            let first = &result[0].branch;
+            let branch = pick_branch_for_subsequent_repo(db, repo_path, &repo_name, first)?;
+            result.push(RepoBranch {
+                path: repo_path_str.clone(),
+                branch,
+            });
+        }
+    }
+
+    Ok(result)
+}
+
+/// Resolve a single branch target with worktree conflict retry.
+fn resolve_branch_for_repo(
+    db: &crate::db::Database,
+    repo_path: &std::path::Path,
+    all_repo_paths: &[String],
+    branch_override: &Option<String>,
+) -> Result<Option<git::BranchTarget>> {
+    loop {
+        let candidate = match branch_override {
+            Some(b) => {
+                if git::branch_exists(repo_path, b) {
+                    git::BranchTarget::Existing(b.clone())
+                } else {
+                    git::BranchTarget::New {
+                        name: b.clone(),
+                        start_point: None,
+                    }
                 }
             }
-            None => pick_branch_interactive(db, first_repo)?,
+            None => pick_branch_interactive(db, repo_path)?,
         };
 
-        // Only existing branches can conflict — new branches don't exist yet.
-        if let git::BranchTarget::New(_) = &candidate {
-            return Ok(candidate);
+        if let git::BranchTarget::New { .. } = &candidate {
+            return Ok(Some(candidate));
         }
 
-        // Check all repos for an existing worktree on this branch.
-        let conflict = repo_paths.iter().find_map(|rp| {
+        // Check for worktree conflict on this branch.
+        let conflict = all_repo_paths.iter().find_map(|rp| {
             git::find_worktree_for_branch(std::path::Path::new(rp), candidate.name())
                 .ok()
                 .flatten()
         });
 
         match conflict {
-            None => return Ok(candidate),
+            None => return Ok(Some(candidate)),
             Some(conflict_path) => {
-                // See if it belongs to a cece workspace.
                 let existing_ws = workspace::find_by_worktree(db, &conflict_path)?;
                 match existing_ws {
                     Some(ws) => {
@@ -225,7 +323,6 @@ fn resolve_branch(
                             switch(&ws.name)?;
                             std::process::exit(0);
                         }
-                        // Otherwise loop back to branch selection.
                     }
                     None => {
                         eprintln!(
@@ -237,7 +334,6 @@ fn resolve_branch(
                             anyhow::bail!("cannot create workspace: branch already checked out");
                         }
                         eprintln!("Please choose a different branch.");
-                        // Loop back to branch selection.
                     }
                 }
             }
@@ -245,8 +341,72 @@ fn resolve_branch(
     }
 }
 
-/// Interactively pick a branch: FuzzySelect from existing branches plus a "new branch" option.
-/// Defaults to "[ new branch ]". Main/master appears at the top of existing branches.
+/// For the 2nd+ repo, offer "same branch as first" as default, or pick a different one.
+fn pick_branch_for_subsequent_repo(
+    db: &crate::db::Database,
+    repo_path: &std::path::Path,
+    repo_name: &str,
+    first_branch: &git::BranchTarget,
+) -> Result<git::BranchTarget> {
+    let same_label = format!("[ same branch - {} ]", first_branch.name());
+
+    let branches = git::list_branches(repo_path).unwrap_or_default();
+    let default_branch =
+        git::detect_default_branch(repo_path).unwrap_or_else(|_| "main".to_string());
+    let current_branch = git::current_branch(repo_path).unwrap_or_else(|_| "unknown".to_string());
+
+    let new_from_main = format!("[ new branch - from {} ]", default_branch);
+    let new_from_current = format!("[ new branch - from current ({}) ]", current_branch);
+
+    let mut items = vec![
+        same_label.clone(),
+        new_from_main.clone(),
+        new_from_current.clone(),
+    ];
+    if branches.contains(&default_branch) {
+        items.push(default_branch.clone());
+    }
+    items.extend(branches.iter().filter(|b| *b != &default_branch).cloned());
+
+    let selection = FuzzySelect::new()
+        .with_prompt(format!("Branch for {}", repo_name))
+        .items(&items)
+        .default(0)
+        .interact()?;
+
+    if items[selection] == same_label {
+        // Replicate the first repo's branch target for this repo.
+        Ok(match first_branch {
+            git::BranchTarget::New {
+                name, start_point, ..
+            } => git::BranchTarget::New {
+                name: name.clone(),
+                start_point: start_point.clone(),
+            },
+            git::BranchTarget::Existing(name) => git::BranchTarget::Existing(name.clone()),
+        })
+    } else if items[selection] == new_from_main {
+        eprintln!("Fetching latest {} from origin...", default_branch);
+        git::fetch_origin(repo_path)?;
+        let name = prompt_new_branch(db)?;
+        Ok(git::BranchTarget::New {
+            name,
+            start_point: Some(format!("origin/{}", default_branch)),
+        })
+    } else if items[selection] == new_from_current {
+        let name = prompt_new_branch(db)?;
+        Ok(git::BranchTarget::New {
+            name,
+            start_point: None,
+        })
+    } else {
+        Ok(git::BranchTarget::Existing(items[selection].clone()))
+    }
+}
+
+/// Interactively pick a branch: FuzzySelect from existing branches plus two "new branch" options.
+/// "New branch - from main/master" (default) fetches origin first.
+/// "New branch - from current" branches from the current HEAD.
 fn pick_branch_interactive(
     db: &crate::db::Database,
     repo_path: &std::path::Path,
@@ -254,10 +414,13 @@ fn pick_branch_interactive(
     let branches = git::list_branches(repo_path).unwrap_or_default();
     let default_branch =
         git::detect_default_branch(repo_path).unwrap_or_else(|_| "main".to_string());
+    let current_branch = git::current_branch(repo_path).unwrap_or_else(|_| "unknown".to_string());
 
-    const NEW_BRANCH_ITEM: &str = "[ new branch ]";
-    let mut items = vec![NEW_BRANCH_ITEM.to_string()];
-    // Default branch (main/master) first, then the rest alphabetically.
+    let new_from_main = format!("[ new branch - from {} ]", default_branch);
+    let new_from_current = format!("[ new branch - from current ({}) ]", current_branch);
+
+    let mut items = vec![new_from_main.clone(), new_from_current.clone()];
+    // Existing branches: default branch first, then the rest alphabetically.
     if branches.contains(&default_branch) {
         items.push(default_branch.clone());
     }
@@ -266,11 +429,23 @@ fn pick_branch_interactive(
     let selection = FuzzySelect::new()
         .with_prompt("Branch")
         .items(&items)
-        .default(0) // default to "[ new branch ]"
+        .default(0)
         .interact()?;
 
-    if selection == 0 {
-        Ok(git::BranchTarget::New(prompt_new_branch(db)?))
+    if items[selection] == new_from_main {
+        eprintln!("Fetching latest {} from origin...", default_branch);
+        git::fetch_origin(repo_path)?;
+        let name = prompt_new_branch(db)?;
+        Ok(git::BranchTarget::New {
+            name,
+            start_point: Some(format!("origin/{}", default_branch)),
+        })
+    } else if items[selection] == new_from_current {
+        let name = prompt_new_branch(db)?;
+        Ok(git::BranchTarget::New {
+            name,
+            start_point: None,
+        })
     } else {
         Ok(git::BranchTarget::Existing(items[selection].clone()))
     }
@@ -308,6 +483,232 @@ fn prompt_new_branch(db: &crate::db::Database) -> Result<String> {
     vars.insert("ticket", ticket.as_str());
     vars.insert("desc", desc.as_str());
     Ok(git::expand_branch_template(&template, &vars))
+}
+
+/// Write a CLAUDE.md into the workspace directory so that Claude Code agents
+/// working in this workspace understand the repo layout and how worktrees work.
+fn write_workspace_claude_md(
+    ws_dir: &std::path::Path,
+    ws_name: &str,
+    repos: &[RepoBranch],
+) -> Result<()> {
+    std::fs::create_dir_all(ws_dir)?;
+
+    let mut repo_table = String::new();
+    for rb in repos {
+        let repo_path = std::path::Path::new(&rb.path);
+        let repo_name = repo_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "repo".to_string());
+        repo_table.push_str(&format!(
+            "| {repo_name} | `{branch}` | `{dir}` | `{origin}` |\n",
+            branch = rb.branch.name(),
+            dir = repo_name,
+            origin = rb.path,
+        ));
+    }
+
+    let is_multi = repos.len() > 1;
+    let multi_repo_note = if is_multi {
+        "This is a **multi-repo workspace**. Each repo is in its own subdirectory. \
+         When making cross-repo changes, coordinate commits across repos to keep them in sync.\n"
+    } else {
+        ""
+    };
+
+    let content = format!(
+        r#"# Workspace: {ws_name}
+
+{multi_repo_note}
+## Repos
+
+| Repo | Branch | Directory | Origin |
+|------|--------|-----------|--------|
+{repo_table}
+## How This Workspace Works
+
+Each repo above is a **git worktree** — a lightweight checkout that shares history with the
+original clone listed in the Origin column. This means:
+
+- **Do not run `git clone`** inside this workspace. The repos are already checked out.
+- **Commits, branches, and stashes** are shared with the origin repo. A branch created here
+  is visible from the origin, and vice versa.
+- **`git pull`/`git push`** work normally from within any worktree directory.
+- To see all worktrees for a repo: `git worktree list` (run from any worktree or the origin).
+
+## Working In This Workspace
+
+- `cd` into a repo's directory before running repo-specific commands (build, test, lint).
+- Each repo may have its own CLAUDE.md with repo-specific instructions — read it if present.
+- Keep changes focused on the branch for this workspace. Avoid switching branches inside a
+  worktree; create a new workspace instead.
+
+## Plans
+
+If you create implementation plans, design docs, or other working documents, put them in the
+`plans/` directory at the workspace root — **not inside any repo**. This keeps planning
+artifacts out of version control and avoids polluting repo diffs.
+
+```
+{ws_name}/
+  plans/          ← your plans go here
+  {repo_dirs}```
+"#,
+        repo_dirs = repos
+            .iter()
+            .map(|rb| {
+                {
+                    let repo_path = std::path::Path::new(&rb.path);
+                    let repo_name = repo_path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "repo".to_string());
+                    format!("  {repo_name}/")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+
+    let claude_md_path = ws_dir.join("CLAUDE.md");
+    std::fs::write(&claude_md_path, content)?;
+
+    std::fs::create_dir_all(ws_dir.join("plans"))?;
+
+    Ok(())
+}
+
+/// Build RepoBranch entries from existing workspace_repos records (for CLAUDE.md regeneration).
+fn repo_branches_from_db(repos: &[workspace::WorkspaceRepo]) -> Vec<RepoBranch> {
+    repos
+        .iter()
+        .map(|r| RepoBranch {
+            path: r.repo_path.clone(),
+            branch: if r.branch_new {
+                git::BranchTarget::New {
+                    name: r.branch.clone(),
+                    start_point: None,
+                }
+            } else {
+                git::BranchTarget::Existing(r.branch.clone())
+            },
+        })
+        .collect()
+}
+
+fn add_repo_cmd(
+    workspace_arg: Option<String>,
+    mut repo_paths: Vec<String>,
+    branch_override: Option<String>,
+) -> Result<()> {
+    let db = open_db()?;
+
+    // Resolve workspace from argument or cwd.
+    let ws_name = match workspace_arg {
+        Some(name) => name,
+        None => {
+            let cwd = std::env::current_dir().context("cannot determine current directory")?;
+            workspace::find_by_worktree(&db, &cwd)?
+                .map(|ws| ws.name)
+                .context("cannot infer workspace from current directory — use --workspace")?
+        }
+    };
+    let ws = workspace::get_by_name(&db, &ws_name)?;
+    let ws_dir = cece_dir()?.join("workspaces").join(&ws_name);
+    let existing_repos = workspace::get_repos(&db, ws.id)?;
+    let existing_paths: Vec<String> = existing_repos.iter().map(|r| r.repo_path.clone()).collect();
+
+    // Gather repos interactively if not provided.
+    if repo_paths.is_empty() {
+        let known = repo::list(&db)?;
+        // Filter out repos already in this workspace.
+        let available: Vec<String> = known
+            .into_iter()
+            .filter(|p| !existing_paths.contains(p))
+            .collect();
+
+        if available.is_empty() {
+            let path: String = Input::new()
+                .with_prompt("Enter a repo path")
+                .interact_text()?;
+            repo_paths.push(path);
+        } else {
+            let selections = MultiSelect::new()
+                .with_prompt("Select repos to add (space to toggle, enter to confirm)")
+                .items(&available)
+                .interact()?;
+            for i in selections {
+                repo_paths.push(available[i].clone());
+            }
+        }
+        loop {
+            let add_more: String = Input::new()
+                .with_prompt("Add another repo path (blank to skip)")
+                .allow_empty(true)
+                .interact_text()?;
+            if add_more.is_empty() {
+                break;
+            }
+            repo_paths.push(add_more);
+        }
+    }
+
+    // Filter out repos already in the workspace.
+    repo_paths.retain(|p| {
+        if existing_paths.contains(p) {
+            eprintln!("  skipping {} — already in workspace", p);
+            false
+        } else {
+            true
+        }
+    });
+
+    if repo_paths.is_empty() {
+        anyhow::bail!("no new repos to add");
+    }
+
+    // Resolve branches per-repo.
+    let repo_branches = resolve_branches_per_repo(&db, &repo_paths, branch_override)?;
+
+    for rb in &repo_branches {
+        let repo_path = std::path::Path::new(&rb.path);
+        let repo_name = repo_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "repo".to_string());
+        let worktree_path = ws_dir.join(&repo_name);
+
+        git::worktree_add(repo_path, &worktree_path, &rb.branch)?;
+        workspace::add_repo(
+            &db,
+            ws.id,
+            &rb.path,
+            rb.branch.name(),
+            &worktree_path.to_string_lossy(),
+            rb.branch.is_new(),
+        )?;
+        repo::add(&db, &rb.path)?;
+
+        println!(
+            "  added {} ({}) → {}",
+            repo_name,
+            rb.branch.name(),
+            worktree_path.display()
+        );
+    }
+
+    // Regenerate CLAUDE.md with the full repo list.
+    let all_repos = workspace::get_repos(&db, ws.id)?;
+    let all_repo_branches = repo_branches_from_db(&all_repos);
+    write_workspace_claude_md(&ws_dir, &ws_name, &all_repo_branches)?;
+
+    println!(
+        "Added {} repo(s) to workspace '{}'.",
+        repo_branches.len(),
+        ws_name
+    );
+    Ok(())
 }
 
 fn delete(name: &str) -> Result<()> {

@@ -105,13 +105,14 @@ pub fn find_by_worktree(db: &Database, cwd: &std::path::Path) -> Result<Option<W
             created_at: r.get(4)?,
         })
     })?;
-    // Return the first workspace whose worktree path is a prefix of cwd.
+    // Return the first workspace where cwd is inside a worktree path OR
+    // a worktree path is inside cwd (e.g. cwd is the workspace root directory).
     for row in rows {
         let ws = row?;
         let repos = get_repos(db, ws.id)?;
         for repo in &repos {
             let wt = std::path::Path::new(&repo.worktree_path);
-            if cwd.starts_with(wt) {
+            if cwd.starts_with(wt) || wt.starts_with(cwd) {
                 return Ok(Some(ws));
             }
         }
@@ -193,6 +194,51 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let result = delete(&db, "ghost");
         assert!(matches!(result, Err(CeceError::WorkspaceNotFound(_))));
+    }
+
+    #[test]
+    fn test_find_by_worktree_inside_repo() {
+        let db = Database::open_in_memory().unwrap();
+        let ws_id = create(&db, "multi").unwrap();
+        add_repo(
+            &db,
+            ws_id,
+            "/repos/frontend",
+            "main",
+            "/cece/workspaces/multi/frontend",
+            false,
+        )
+        .unwrap();
+        add_repo(
+            &db,
+            ws_id,
+            "/repos/backend",
+            "main",
+            "/cece/workspaces/multi/backend",
+            false,
+        )
+        .unwrap();
+
+        // Inside a worktree — should match.
+        let found =
+            find_by_worktree(&db, std::path::Path::new("/cece/workspaces/multi/frontend")).unwrap();
+        assert_eq!(found.unwrap().name, "multi");
+
+        // Inside a subdirectory of a worktree — should match.
+        let found = find_by_worktree(
+            &db,
+            std::path::Path::new("/cece/workspaces/multi/backend/src"),
+        )
+        .unwrap();
+        assert_eq!(found.unwrap().name, "multi");
+
+        // At the workspace root (parent of worktrees) — should match.
+        let found = find_by_worktree(&db, std::path::Path::new("/cece/workspaces/multi")).unwrap();
+        assert_eq!(found.unwrap().name, "multi");
+
+        // Completely unrelated path — no match.
+        let found = find_by_worktree(&db, std::path::Path::new("/other/path")).unwrap();
+        assert!(found.is_none());
     }
 
     #[test]

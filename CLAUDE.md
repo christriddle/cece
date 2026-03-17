@@ -6,8 +6,47 @@ Operate autonomously. Do not ask for confirmation before taking actions unless s
 
 ## General
 
-- Read `docs/plans/cece-1.md` for the project plan and feature requirements.
+- Read `docs/plans/cece-1.md` for the original project plan. The CLI has grown beyond that doc — always check `src/cli/mod.rs` for the current command tree.
 - Keep code simple, focused, and easily testable.
+
+## CLI Commands
+
+```
+cece init                          # First-time setup (~/.cece, SQLite, hooks)
+cece ws create <name>              # Create workspace (interactive repo/branch selection)
+cece ws list                       # List all workspaces
+cece ws delete <name>              # Delete workspace and its worktrees
+cece ws switch <name>              # Switch to workspace (Cmux or prints path)
+cece ws add-repo [--workspace X]   # Add repos to an existing workspace
+cece agent create <name>           # Create agent in current workspace
+cece agent list                    # List agents in current workspace
+cece agent delete <name>           # Delete agent
+cece agent switch <name>           # Switch to agent (Cmux tab)
+cece agent logs <name>             # Show agent session history
+cece agent watch <name>            # Block until agent is idle
+cece template create <name>        # Create workspace template
+cece template list                 # List templates
+cece template delete <name>        # Delete template
+cece list                          # List all workspaces and agents
+cece status                        # Dashboard of workspaces, repos, agents
+cece idea                          # Open current worktree in IntelliJ IDEA
+cece completions <shell>           # Generate shell completions
+cece hook ...                      # Internal hooks (called by Claude Code, hidden)
+```
+
+## Key Patterns
+
+### Interactive prompts
+The CLI uses `dialoguer` for all interactive input: `FuzzySelect` for single selection, `MultiSelect` for multi-selection, `Input` for text, `Confirm` for yes/no. Keep this consistent — don't mix in raw stdin reads.
+
+### Workspace CLAUDE.md
+`cece ws create` and `cece ws add-repo` auto-generate a `CLAUDE.md` in the workspace directory (`~/.cece/workspaces/<name>/CLAUDE.md`). This tells Claude Code agents about the repo layout, worktree mechanics, and where to put plans. The template lives in `write_workspace_claude_md()` in `src/cli/workspace.rs`. Update it when workspace structure changes.
+
+### Workspace resolution
+Workspaces are resolved from the current directory by matching against worktree paths in the DB. This works from inside a worktree **or** from the workspace root directory (parent of worktrees). See `find_by_worktree()` in `src/db/workspace.rs`.
+
+### Git worktrees and branches
+The `git` module (`src/git/mod.rs`) wraps all git operations. `BranchTarget` is the core type — `New { name, start_point }` or `Existing(name)`. New branches can specify a start point (e.g. `origin/main` after a fetch). Per-repo branch selection happens during workspace creation.
 
 ## Rust Style
 

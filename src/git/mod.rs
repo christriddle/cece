@@ -5,8 +5,11 @@ use std::process::Command;
 
 /// Whether to create a new branch or check out an existing one when adding a worktree.
 pub enum BranchTarget {
-    /// Create a new local branch with this name.
-    New(String),
+    /// Create a new local branch with this name, optionally from a specific start point.
+    New {
+        name: String,
+        start_point: Option<String>,
+    },
     /// Check out an existing local or remote-tracking branch.
     Existing(String),
 }
@@ -14,12 +17,12 @@ pub enum BranchTarget {
 impl BranchTarget {
     pub fn name(&self) -> &str {
         match self {
-            BranchTarget::New(n) | BranchTarget::Existing(n) => n,
+            BranchTarget::New { name, .. } | BranchTarget::Existing(name) => name,
         }
     }
 
     pub fn is_new(&self) -> bool {
-        matches!(self, BranchTarget::New(_))
+        matches!(self, BranchTarget::New { .. })
     }
 }
 
@@ -183,6 +186,39 @@ pub fn detect_default_branch(repo_path: &Path) -> Result<String> {
     ))
 }
 
+/// Fetch the latest refs from origin.
+pub fn fetch_origin(repo_path: &Path) -> Result<()> {
+    let output = Command::new("git")
+        .args(["-C", &repo_path.to_string_lossy(), "fetch", "origin"])
+        .output()
+        .map_err(|e| CeceError::Git(e.to_string()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(CeceError::Git(format!("git fetch origin failed: {stderr}")));
+    }
+    Ok(())
+}
+
+/// Return the current branch name (e.g. "main", "feature-xyz").
+pub fn current_branch(repo_path: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &repo_path.to_string_lossy(),
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+        ])
+        .output()
+        .map_err(|e| CeceError::Git(e.to_string()))?;
+    if !output.status.success() {
+        return Err(CeceError::Git(
+            "could not determine current branch".to_string(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 /// Create a git worktree at `worktree_path` for the given branch target.
 /// - `BranchTarget::New(name)` creates a new local branch.
 /// - `BranchTarget::Existing(name)` checks out an existing local or remote-tracking branch.
@@ -194,7 +230,15 @@ pub fn worktree_add(repo_path: &Path, worktree_path: &Path, branch: &BranchTarge
     let wt = worktree_path.to_string_lossy();
 
     let args: Vec<&str> = match branch {
-        BranchTarget::New(name) => vec!["-C", &repo, "worktree", "add", "-b", name, &wt],
+        BranchTarget::New {
+            name, start_point, ..
+        } => {
+            let mut a = vec!["-C", &repo, "worktree", "add", "-b", name, &wt];
+            if let Some(sp) = start_point {
+                a.push(sp);
+            }
+            a
+        }
         BranchTarget::Existing(name) => vec!["-C", &repo, "worktree", "add", &wt, name],
     };
 
