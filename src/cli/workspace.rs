@@ -1128,10 +1128,12 @@ fn delete(name: &str) -> Result<()> {
 
 /// Return the cmux workspace ID for a cece workspace, creating a new cmux workspace
 /// if one hasn't been set or the previously stored one no longer exists.
+/// When a new cmux workspace is created, opens the initial surface in `start_dir`.
 pub(crate) fn ensure_cmux_workspace(
     db: &crate::db::Database,
     ws: &workspace::Workspace,
     name: &str,
+    start_dir: &std::path::Path,
 ) -> Result<String> {
     if let Some(cmux_id) = ws.cmux_workspace_id.as_deref() {
         match crate::cmux::select_workspace(cmux_id) {
@@ -1145,6 +1147,8 @@ pub(crate) fn ensure_cmux_workspace(
     let new_id = crate::cmux::create_workspace(name)?;
     crate::cmux::rename_workspace(&new_id, name)?;
     workspace::set_cmux_id(db, ws.id, &new_id)?;
+    let surface_id = crate::cmux::open_surface(&new_id, start_dir)?;
+    workspace::set_cmux_surface_id(db, ws.id, &surface_id)?;
     Ok(new_id)
 }
 
@@ -1156,7 +1160,13 @@ fn switch(name: &str) -> Result<()> {
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
 
     if cmux_enabled {
-        let cmux_id = ensure_cmux_workspace(&db, &ws, name)?;
+        let repos = workspace::get_repos(&db, ws.id)?;
+        let start_dir = if repos.len() == 1 {
+            std::path::PathBuf::from(&repos[0].worktree_path)
+        } else {
+            ws_dir.clone()
+        };
+        let cmux_id = ensure_cmux_workspace(&db, &ws, name, &start_dir)?;
         crate::cmux::select_workspace(&cmux_id)?;
         println!("Switched to workspace '{}' in Cmux.", name);
     } else {

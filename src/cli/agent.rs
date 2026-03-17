@@ -86,7 +86,7 @@ fn create(name: &str, workspace_arg: Option<String>, dir_override: Option<PathBu
     let workspace_name = resolve_workspace(&db, workspace_arg)?;
     let ws = workspace::get_by_name(&db, &workspace_name)?;
     let ws_dir = crate::cece_dir()?.join("workspaces").join(&workspace_name);
-    let working_dir = dir_override.unwrap_or(ws_dir);
+    let working_dir = dir_override.unwrap_or_else(|| ws_dir.clone());
 
     let id = agent::create(&db, name, ws.id, &working_dir.to_string_lossy())?;
     println!(
@@ -96,7 +96,14 @@ fn create(name: &str, workspace_arg: Option<String>, dir_override: Option<PathBu
 
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
-        let cmux_id = crate::cli::workspace::ensure_cmux_workspace(&db, &ws, &workspace_name)?;
+        let repos = workspace::get_repos(&db, ws.id)?;
+        let ws_start_dir = if repos.len() == 1 {
+            std::path::PathBuf::from(&repos[0].worktree_path)
+        } else {
+            ws_dir
+        };
+        let cmux_id =
+            crate::cli::workspace::ensure_cmux_workspace(&db, &ws, &workspace_name, &ws_start_dir)?;
         let surface_id = ws.cmux_surface_id.as_deref().with_context(|| {
             format!("workspace '{workspace_name}' has no command-center surface — try re-creating it with cmux enabled")
         })?;
@@ -169,8 +176,19 @@ fn switch(name: &str, workspace_arg: Option<String>) -> Result<()> {
             Ok(()) => {}
             Err(e) if format!("{e:#}").contains("not_found") => {
                 eprintln!("Surface no longer exists, reopening agent...");
-                let cmux_id =
-                    crate::cli::workspace::ensure_cmux_workspace(&db, &ws, &workspace_name)?;
+                let ws_dir = crate::cece_dir()?.join("workspaces").join(&workspace_name);
+                let repos = workspace::get_repos(&db, ws.id)?;
+                let ws_start_dir = if repos.len() == 1 {
+                    std::path::PathBuf::from(&repos[0].worktree_path)
+                } else {
+                    ws_dir
+                };
+                let cmux_id = crate::cli::workspace::ensure_cmux_workspace(
+                    &db,
+                    &ws,
+                    &workspace_name,
+                    &ws_start_dir,
+                )?;
                 let cc_surface = ws.cmux_surface_id.as_deref().with_context(|| {
                     format!("workspace '{workspace_name}' has no command-center surface")
                 })?;
