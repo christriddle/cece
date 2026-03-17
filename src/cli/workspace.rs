@@ -36,6 +36,14 @@ pub enum WorkspaceCommands {
         #[arg(long)]
         branch: Option<String>,
     },
+    /// Remove a repo from an existing workspace
+    RemoveRepo {
+        /// Workspace name. Inferred from current directory if omitted.
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Repo path to remove. If omitted, prompted interactively.
+        repo: Option<String>,
+    },
 }
 
 pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
@@ -53,6 +61,7 @@ pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
             repos,
             branch,
         } => add_repo_cmd(workspace, repos, branch),
+        WorkspaceCommands::RemoveRepo { workspace, repo } => remove_repo_cmd(workspace, repo),
     }
 }
 
@@ -721,6 +730,84 @@ fn add_repo_cmd(
         repo_branches.len(),
         ws_name
     );
+    Ok(())
+}
+
+fn remove_repo_cmd(workspace_arg: Option<String>, repo_arg: Option<String>) -> Result<()> {
+    let db = open_db()?;
+
+    // Resolve workspace from argument or cwd.
+    let ws_name = match workspace_arg {
+        Some(name) => name,
+        None => {
+            let cwd = std::env::current_dir().context("cannot determine current directory")?;
+            workspace::find_by_worktree(&db, &cwd)?
+                .map(|ws| ws.name)
+                .context("cannot infer workspace from current directory — use --workspace")?
+        }
+    };
+    let ws = workspace::get_by_name(&db, &ws_name)?;
+    let ws_dir = cece_dir()?.join("workspaces").join(&ws_name);
+    let existing_repos = workspace::get_repos(&db, ws.id)?;
+
+    if existing_repos.is_empty() {
+        anyhow::bail!("workspace '{}' has no repos", ws_name);
+    }
+
+    // Resolve which repo to remove.
+    let repo_path = match repo_arg {
+        Some(path) => path,
+        None => {
+            let items: Vec<String> = existing_repos
+                .iter()
+                .map(|r| {
+                    let repo_name = std::path::Path::new(&r.repo_path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| r.repo_path.clone());
+                    format!("{} ({})", repo_name, r.branch)
+                })
+                .collect();
+            let selection = FuzzySelect::new()
+                .with_prompt("Select repo to remove")
+                .items(&items)
+                .default(0)
+                .interact()?;
+            existing_repos[selection].repo_path.clone()
+        }
+    };
+
+    let removed = workspace::remove_repo(&db, ws.id, &repo_path)?;
+
+    // Remove the git worktree.
+    let repo_path_obj = std::path::Path::new(&removed.repo_path);
+    let worktree_path = std::path::Path::new(&removed.worktree_path);
+    git::worktree_remove(repo_path_obj, worktree_path)?;
+
+    // Delete branch if it was freshly created for this workspace.
+    if removed.branch_new {
+        git::delete_branch(repo_path_obj, &removed.branch).unwrap_or_else(|e| {
+            eprintln!("warning: could not delete branch '{}': {e}", removed.branch)
+        });
+    }
+
+    // Regenerate CLAUDE.md with remaining repos, or remove it if none left.
+    let remaining_repos = workspace::get_repos(&db, ws.id)?;
+    if remaining_repos.is_empty() {
+        let claude_md_path = ws_dir.join("CLAUDE.md");
+        if claude_md_path.exists() {
+            std::fs::remove_file(&claude_md_path)?;
+        }
+    } else {
+        let repo_branches = repo_branches_from_db(&remaining_repos);
+        write_workspace_claude_md(&ws_dir, &ws_name, &repo_branches)?;
+    }
+
+    let repo_name = std::path::Path::new(&removed.repo_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| removed.repo_path.clone());
+    println!("Removed repo '{}' from workspace '{}'.", repo_name, ws_name);
     Ok(())
 }
 
