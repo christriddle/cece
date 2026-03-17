@@ -56,14 +56,26 @@ pub enum Commands {
     List,
     /// Show status of all workspaces and agents
     Status,
-    /// Open the current worktree in IntelliJ IDEA
-    Idea,
-    /// Open the current worktree in Zed
-    Zed,
-    /// Open the current worktree in VS Code
-    Code,
-    /// Open the current worktree in Cursor
-    Cursor,
+    /// Open a worktree in IntelliJ IDEA
+    Idea {
+        /// Workspace name. Inferred from current directory if omitted.
+        workspace: Option<String>,
+    },
+    /// Open a worktree in Zed
+    Zed {
+        /// Workspace name. Inferred from current directory if omitted.
+        workspace: Option<String>,
+    },
+    /// Open a worktree in VS Code
+    Code {
+        /// Workspace name. Inferred from current directory if omitted.
+        workspace: Option<String>,
+    },
+    /// Open a worktree in Cursor
+    Cursor {
+        /// Workspace name. Inferred from current directory if omitted.
+        workspace: Option<String>,
+    },
     /// Internal hooks called by Claude Code
     #[command(subcommand, hide = true)]
     Hook(hook::HookCommands),

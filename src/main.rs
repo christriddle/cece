@@ -12,10 +12,10 @@ fn main() -> Result<()> {
         Commands::Template(cmd) => cece::cli::template::handle_template(cmd)?,
         Commands::List => cece::cli::list::handle_list()?,
         Commands::Status => cece::cli::status::handle_status()?,
-        Commands::Idea => open_editor("idea")?,
-        Commands::Zed => open_editor("zed")?,
-        Commands::Code => open_editor("code")?,
-        Commands::Cursor => open_editor("cursor")?,
+        Commands::Idea { workspace } => open_editor("idea", workspace)?,
+        Commands::Zed { workspace } => open_editor("zed", workspace)?,
+        Commands::Code { workspace } => open_editor("code", workspace)?,
+        Commands::Cursor { workspace } => open_editor("cursor", workspace)?,
         Commands::Hook(cmd) => {
             cece::cli::hook::handle_hook(cmd);
         }
@@ -29,23 +29,36 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn open_editor(cmd: &str) -> Result<()> {
+fn open_editor(cmd: &str, workspace: Option<String>) -> Result<()> {
     let db = open_db()?;
-    let cwd = std::env::current_dir()?;
 
-    let ws = cece::db::workspace::find_by_worktree(&db, &cwd)?.ok_or_else(|| {
-        anyhow::anyhow!("not inside a cece worktree — run this from inside a workspace directory")
-    })?;
-
-    let repos = cece::db::workspace::get_repos(&db, ws.id)?;
-    let worktree_path = repos
-        .into_iter()
-        .find(|r| cwd.starts_with(&r.worktree_path))
-        .map(|r| std::path::PathBuf::from(r.worktree_path))
-        .unwrap_or(cwd);
+    let target = if let Some(name) = workspace {
+        // Explicit workspace: open the workspace root directory.
+        let ws = cece::db::workspace::get_by_name(&db, &name)?;
+        let ws_dir = cece::cece_dir()?.join("workspaces").join(&ws.name);
+        let repos = cece::db::workspace::get_repos(&db, ws.id)?;
+        // Single repo: open the worktree directly. Multi-repo: open the workspace root.
+        if repos.len() == 1 {
+            std::path::PathBuf::from(&repos[0].worktree_path)
+        } else {
+            ws_dir
+        }
+    } else {
+        // Infer from cwd.
+        let cwd = std::env::current_dir()?;
+        let ws = cece::db::workspace::find_by_worktree(&db, &cwd)?.ok_or_else(|| {
+            anyhow::anyhow!("not inside a cece worktree — pass a workspace name or cd into one")
+        })?;
+        let repos = cece::db::workspace::get_repos(&db, ws.id)?;
+        repos
+            .into_iter()
+            .find(|r| cwd.starts_with(&r.worktree_path))
+            .map(|r| std::path::PathBuf::from(r.worktree_path))
+            .unwrap_or(cwd)
+    };
 
     let status = std::process::Command::new(cmd)
-        .arg(&worktree_path)
+        .arg(&target)
         .status()
         .map_err(|e| {
             anyhow::anyhow!("failed to run `{cmd}`: {e} — is it installed and in PATH?")
