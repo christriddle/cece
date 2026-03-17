@@ -1,6 +1,7 @@
 use anyhow::Result;
-use comfy_table::{Cell, Color, Table};
+use comfy_table::{Cell, Color};
 
+use super::styled_table;
 use crate::{db::agent, db::workspace, open_db};
 
 pub fn handle_list() -> Result<()> {
@@ -12,15 +13,13 @@ pub fn handle_list() -> Result<()> {
         return Ok(());
     }
 
-    let mut table = Table::new();
-    table.set_header(["Workspace", "Agent", "Last Request", "Last Response"]);
+    let mut table = styled_table(&["Workspace", "Agent", "Last Request"]);
 
     for ws in &workspaces {
         let agents = agent::list(&db, ws.id)?;
         if agents.is_empty() {
             table.add_row([
                 Cell::new(&ws.name).fg(Color::Cyan),
-                Cell::new("—"),
                 Cell::new("—"),
                 Cell::new("—"),
             ]);
@@ -33,9 +32,8 @@ pub fn handle_list() -> Result<()> {
                 };
                 table.add_row([
                     ws_cell,
-                    Cell::new(&a.name),
+                    Cell::new(&a.name).fg(Color::Green),
                     Cell::new(a.last_request.as_deref().unwrap_or("—")),
-                    Cell::new(a.last_response.as_deref().unwrap_or("—")),
                 ]);
             }
         }

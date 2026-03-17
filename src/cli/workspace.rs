@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use comfy_table::{Cell, Table};
+use comfy_table::{Cell, Color};
 use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
 use std::collections::HashMap;
 
+use super::styled_table;
 use crate::{cece_dir, db::agent, db::config, db::repo, db::template, db::workspace, git, open_db};
 
 #[derive(Subcommand)]
@@ -229,8 +230,7 @@ fn list() -> Result<()> {
         return Ok(());
     }
 
-    let mut table = Table::new();
-    table.set_header(["Name", "Repos", "Created"]);
+    let mut table = styled_table(&["Name", "Repos", "Created"]);
     for ws in &workspaces {
         let repos = workspace::get_repos(&db, ws.id)?;
         let repo_names: Vec<_> = repos
@@ -243,7 +243,7 @@ fn list() -> Result<()> {
             })
             .collect();
         table.add_row([
-            Cell::new(&ws.name),
+            Cell::new(&ws.name).fg(Color::Cyan),
             Cell::new(repo_names.join(", ")),
             Cell::new(&ws.created_at[..10]),
         ]);
@@ -280,38 +280,28 @@ fn info(name_arg: Option<String>) -> Result<()> {
     println!();
 
     // Repos table
-    println!("Repos:");
     if repos.is_empty() {
-        println!("  (none)");
+        println!("Repos: (none)");
     } else {
-        let mut table = Table::new();
-        table.set_header(["Repo", "Branch", "New?", "Worktree Path"]);
+        let mut table = styled_table(&["Repo", "Branch"]);
         for r in &repos {
             let repo_name = std::path::Path::new(&r.repo_path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
-            table.add_row([
-                Cell::new(&repo_name),
-                Cell::new(&r.branch),
-                Cell::new(if r.branch_new { "yes" } else { "no" }),
-                Cell::new(&r.worktree_path),
-            ]);
+            table.add_row([Cell::new(&repo_name).fg(Color::Cyan), Cell::new(&r.branch)]);
         }
         println!("{table}");
     }
 
     // Agents table
-    println!("Agents:");
     if agents.is_empty() {
-        println!("  (none)");
+        println!("Agents: (none)");
     } else {
-        let mut table = Table::new();
-        table.set_header(["Agent", "Session", "Last Request"]);
+        let mut table = styled_table(&["Agent", "Last Request"]);
         for a in &agents {
             table.add_row([
-                Cell::new(&a.name),
-                Cell::new(a.claude_session_id.as_deref().unwrap_or("—")),
+                Cell::new(&a.name).fg(Color::Green),
                 Cell::new(
                     a.last_request
                         .as_deref()

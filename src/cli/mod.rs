@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
+use comfy_table::presets::NOTHING;
+use comfy_table::{Attribute, Cell, Color, Table};
 
 pub mod agent;
 pub mod hook;
@@ -8,6 +10,18 @@ pub mod list;
 pub mod status;
 pub mod template;
 pub mod workspace;
+
+/// Create a styled table with no borders, dimmed headers.
+pub(crate) fn styled_table(headers: &[&str]) -> Table {
+    let mut table = Table::new();
+    table.load_preset(NOTHING);
+    table.set_header(headers.iter().map(|h| {
+        Cell::new(h)
+            .fg(Color::DarkGrey)
+            .add_attribute(Attribute::Bold)
+    }));
+    table
+}
 
 #[derive(Parser)]
 #[command(

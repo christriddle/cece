@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::Subcommand;
-use comfy_table::{Cell, Table};
+use comfy_table::Cell;
 use dialoguer::{Input, MultiSelect};
 
+use super::styled_table;
 use crate::{db::repo, db::template, open_db};
 
 #[derive(Subcommand)]
@@ -63,8 +64,7 @@ fn list() -> Result<()> {
         return Ok(());
     }
 
-    let mut table = Table::new();
-    table.set_header(["Name", "Branch Template", "Repos"]);
+    let mut table = styled_table(&["Name", "Branch Template", "Repos"]);
     for t in &templates {
         table.add_row([
             Cell::new(&t.name),

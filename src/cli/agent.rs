@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use comfy_table::{Cell, Table};
+use comfy_table::{Cell, Color};
 use std::path::PathBuf;
+
+use super::styled_table;
 
 use crate::{db::agent, db::config, db::workspace, open_db};
 
@@ -120,14 +122,11 @@ fn list(workspace_arg: Option<String>) -> Result<()> {
         return Ok(());
     }
 
-    let mut table = Table::new();
-    table.set_header(["Name", "Working Dir", "Last Request", "Last Response"]);
+    let mut table = styled_table(&["Name", "Last Request"]);
     for a in &agents {
         table.add_row([
-            Cell::new(&a.name),
-            Cell::new(&a.working_dir),
+            Cell::new(&a.name).fg(Color::Green),
             Cell::new(a.last_request.as_deref().unwrap_or("—")),
-            Cell::new(a.last_response.as_deref().unwrap_or("—")),
         ]);
     }
     println!("{table}");

@@ -1,6 +1,7 @@
 use anyhow::Result;
-use comfy_table::{Cell, Table};
+use comfy_table::{Cell, Color};
 
+use super::styled_table;
 use crate::{db::agent, db::workspace, open_db};
 
 pub fn handle_status() -> Result<()> {
@@ -13,35 +14,30 @@ pub fn handle_status() -> Result<()> {
     }
 
     for ws in &workspaces {
-        println!("\n Workspace: {}", ws.name);
+        println!("\n  {}", ws.name);
 
         let repos = workspace::get_repos(&db, ws.id)?;
         if repos.is_empty() {
-            println!("  Repos: (none)");
+            println!("  (no repos)");
         } else {
-            let mut repo_table = Table::new();
-            repo_table.set_header(["Repo", "Branch", "Path"]);
+            let mut repo_table = styled_table(&["Repo", "Branch"]);
             for r in &repos {
                 let repo_name = std::path::Path::new(&r.repo_path)
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
-                repo_table.add_row([&repo_name, &r.branch, &r.worktree_path]);
+                repo_table.add_row([Cell::new(&repo_name).fg(Color::Cyan), Cell::new(&r.branch)]);
             }
             println!("{repo_table}");
         }
 
         let agents = agent::list(&db, ws.id)?;
-        if agents.is_empty() {
-            println!("  Agents: (none)");
-        } else {
-            let mut agent_table = Table::new();
-            agent_table.set_header(["Agent", "Last Request", "Last Response"]);
+        if !agents.is_empty() {
+            let mut agent_table = styled_table(&["Agent", "Last Request"]);
             for a in &agents {
                 agent_table.add_row([
-                    Cell::new(&a.name),
+                    Cell::new(&a.name).fg(Color::Green),
                     Cell::new(a.last_request.as_deref().unwrap_or("—")),
-                    Cell::new(a.last_response.as_deref().unwrap_or("—")),
                 ]);
             }
             println!("{agent_table}");
