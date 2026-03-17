@@ -92,12 +92,15 @@ fn user_prompt_submit(payload: &serde_json::Value, db: &crate::db::Database) -> 
 
 fn stop(payload: &serde_json::Value, db: &crate::db::Database) -> anyhow::Result<()> {
     let session_id = str_field(payload, "session_id")?;
-    let message = str_field(payload, "last_assistant_message")?;
 
     let Some(agent) = crate::db::agent::find_by_claude_session_id(db, session_id)? else {
         return Ok(());
     };
-    crate::db::agent::update_last_response(db, agent.id, &clip(message))?;
+
+    // last_assistant_message may be null or absent in some stop scenarios (e.g. Ctrl+C).
+    if let Some(message) = payload["last_assistant_message"].as_str() {
+        crate::db::agent::update_last_response(db, agent.id, &clip(message))?;
+    }
     Ok(())
 }
 

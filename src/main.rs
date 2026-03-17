@@ -18,7 +18,10 @@ fn main() -> Result<()> {
         Commands::Template(cmd) => cli::template::handle_template(cmd)?,
         Commands::List => cli::list::handle_list()?,
         Commands::Status => cli::status::handle_status()?,
-        Commands::Idea => handle_idea()?,
+        Commands::Idea => open_editor("idea")?,
+        Commands::Zed => open_editor("zed")?,
+        Commands::Code => open_editor("code")?,
+        Commands::Cursor => open_editor("cursor")?,
         Commands::Hook(cmd) => {
             cli::hook::handle_hook(cmd);
         }
@@ -32,7 +35,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn handle_idea() -> Result<()> {
+fn open_editor(cmd: &str) -> Result<()> {
     let db = open_db()?;
     let cwd = std::env::current_dir()?;
 
@@ -47,13 +50,15 @@ fn handle_idea() -> Result<()> {
         .map(|r| std::path::PathBuf::from(r.worktree_path))
         .unwrap_or(cwd);
 
-    let status = std::process::Command::new("idea")
+    let status = std::process::Command::new(cmd)
         .arg(&worktree_path)
         .status()
-        .map_err(|e| anyhow::anyhow!("failed to run `idea`: {e} — is it installed and in PATH?"))?;
+        .map_err(|e| {
+            anyhow::anyhow!("failed to run `{cmd}`: {e} — is it installed and in PATH?")
+        })?;
 
     if !status.success() {
-        anyhow::bail!("`idea` exited with status {status}");
+        anyhow::bail!("`{cmd}` exited with status {status}");
     }
     Ok(())
 }

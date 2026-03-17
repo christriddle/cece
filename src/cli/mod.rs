@@ -39,6 +39,12 @@ pub enum Commands {
     Status,
     /// Open the current worktree in IntelliJ IDEA
     Idea,
+    /// Open the current worktree in Zed
+    Zed,
+    /// Open the current worktree in VS Code
+    Code,
+    /// Open the current worktree in Cursor
+    Cursor,
     /// Internal hooks called by Claude Code
     #[command(subcommand, hide = true)]
     Hook(hook::HookCommands),
