@@ -6,7 +6,7 @@ Operate autonomously. Do not ask for confirmation before taking actions unless s
 
 ## General
 
-- Read `docs/plans/cece-1.md` for the original project plan. The CLI has grown beyond that doc — always check `src/cli/mod.rs` for the current command tree.
+- Check `src/cli/mod.rs` for the current command tree.
 - Keep code simple, focused, and easily testable.
 
 ## CLI Commands
