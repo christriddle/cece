@@ -144,7 +144,6 @@ pub fn find_worktree_for_branch(
 }
 
 /// Detect the default branch of a repo (main or master).
-#[allow(dead_code)] // used in future task (Task 7)
 pub fn detect_default_branch(repo_path: &Path) -> Result<String> {
     let output = Command::new("git")
         .args([
