@@ -1168,6 +1168,32 @@ fn switch(name: &str) -> Result<()> {
         };
         let cmux_id = ensure_cmux_workspace(&db, &ws, name, &start_dir)?;
         crate::cmux::select_workspace(&cmux_id)?;
+
+        // Reopen any agents whose surfaces are missing (e.g. workspace was recreated).
+        let agents = agent::list(&db, ws.id)?;
+        let cc_surface = ws.cmux_surface_id.as_deref();
+        for a in &agents {
+            if let Some(surface_id) = a.cmux_surface_id.as_deref() {
+                // Surface exists — check if it's still alive.
+                if crate::cmux::select_agent_tab(surface_id).is_ok() {
+                    continue;
+                }
+            }
+            // Surface is gone or was never set — reopen with session resume.
+            if let Some(cc) = cc_surface {
+                let new_surface_id = crate::cmux::new_agent_tab(
+                    &cmux_id,
+                    cc,
+                    &a.name,
+                    a.id,
+                    std::path::Path::new(&a.working_dir),
+                    a.claude_session_id.as_deref(),
+                )?;
+                agent::update_cmux_surface(&db, a.id, &new_surface_id, a.last_request.as_deref())?;
+                println!("  reopened agent '{}'", a.name);
+            }
+        }
+
         println!("Switched to workspace '{}' in Cmux.", name);
     } else {
         println!("{}", ws_dir.display());
