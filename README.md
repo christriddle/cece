@@ -66,17 +66,47 @@ cece completions bash > /etc/bash_completion.d/cece
 cece completions fish > ~/.config/fish/completions/cece.fish
 ```
 
-## Getting started
+## Quick start
 
 ```bash
+# 1. Initialize cece (one-time setup)
 cece init
+#    → prompts for branch template (e.g. {initials}-{ticket}-{desc})
+#    → prompts for Cmux integration (optional)
+
+# 2. Create a workspace for your ticket
+cece ws create auth-fix
+#    → select repos (e.g. ~/dev/api, ~/dev/web)
+#    → pick "new branch - from main" (fetches origin first)
+#    → fill in template: initials=cr, ticket=OPEN-456, desc=auth-fix
+#    → creates worktrees at ~/.cece/workspaces/auth-fix/api/ and .../web/
+#    → generates CLAUDE.md and .claude/settings.json for agents
+
+# 3. Open the workspace in your editor
+cd ~/.cece/workspaces/auth-fix
+cece code   # or: cece zed, cece idea, cece cursor
+
+# 4. Spin up Claude Code agents to work on the repos
+cece agent create backend
+cece agent create frontend
+#    → each agent gets its own Claude Code session (and Cmux tab if enabled)
+
+# 5. Check on progress
+cece status
+#    auth-fix
+#    Repo   Branch
+#    api    cr-OPEN-456-auth-fix
+#    web    cr-OPEN-456-auth-fix
+#    Agent     Last Request              Last Response
+#    backend   Fix the token refresh…    Done. Updated refresh_token()…
+#    frontend  —                         —
+
+# 6. When you're done, clean up
+cece ws delete auth-fix
+#    → removes worktrees, deletes branches, cleans up DB
 ```
 
-This creates `~/.cece/cece.db` and prompts for:
-- **Branch template** — e.g. `{initials}-{ticket}-{desc}` (placeholders are filled in interactively when creating a workspace)
-- **Cmux integration** — whether to use Cmux for workspace and agent tab switching
-
-## Usage
+## Reference
 
 ### Workspaces
 
