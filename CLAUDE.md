@@ -13,11 +13,13 @@ Operate autonomously. Do not ask for confirmation before taking actions unless s
 
 ```
 cece init                          # First-time setup (~/.cece, SQLite, hooks)
-cece ws create <name>              # Create workspace (interactive repo/branch selection)
+cece ws create <name> [--template T]  # Create workspace (interactive repo/branch selection)
 cece ws list                       # List all workspaces
+cece ws info [name]                # Show details of a workspace
 cece ws delete <name>              # Delete workspace and its worktrees
 cece ws switch <name>              # Switch to workspace (Cmux or prints path)
 cece ws add-repo [--workspace X]   # Add repos to an existing workspace
+cece ws remove-repo [--workspace X]  # Remove a repo from a workspace
 cece agent create <name>           # Create agent in current workspace
 cece agent list                    # List agents in current workspace
 cece agent delete <name>           # Delete agent
@@ -30,6 +32,9 @@ cece template delete <name>        # Delete template
 cece list                          # List all workspaces and agents
 cece status                        # Dashboard of workspaces, repos, agents
 cece idea                          # Open current worktree in IntelliJ IDEA
+cece zed                           # Open current worktree in Zed
+cece code                          # Open current worktree in VS Code
+cece cursor                        # Open current worktree in Cursor
 cece completions <shell>           # Generate shell completions
 cece hook ...                      # Internal hooks (called by Claude Code, hidden)
 ```

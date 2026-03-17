@@ -6,6 +6,10 @@ description = "Manage workspaces of Git repositories and AI agents"
 license = "MIT"
 repository = "https://github.com/christriddle/cece"
 
+[lib]
+name = "cece"
+path = "src/lib.rs"
+
 [[bin]]
 name = "cece"
 path = "src/main.rs"
