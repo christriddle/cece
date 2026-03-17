@@ -48,16 +48,19 @@ cargo build --release
 
 ### Shell completions
 
+Zsh completions include dynamic tab-completion of workspace and agent names from the database. Regenerate after updating cece.
+
 ```bash
 # zsh (oh-my-zsh)
 mkdir -p ~/.oh-my-zsh/completions
 cece completions zsh > ~/.oh-my-zsh/completions/_cece
-# then restart your shell or run: exec zsh
+exec zsh
 
 # zsh (without oh-my-zsh) — add ~/.zfunc to fpath in .zshrc first:
 #   fpath=(~/.zfunc $fpath); autoload -Uz compinit && compinit
 mkdir -p ~/.zfunc
 cece completions zsh > ~/.zfunc/_cece
+exec zsh
 
 # bash
 cece completions bash > /etc/bash_completion.d/cece
