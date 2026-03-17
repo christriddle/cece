@@ -33,14 +33,12 @@ fn create(name: &str) -> Result<()> {
 
     let known = repo::list(&db)?;
     let repo_paths = if known.is_empty() {
-        let path: String = Input::new()
-            .with_prompt("Enter a repo path to include (blank to skip)")
-            .allow_empty(true)
-            .interact_text()?;
-        if path.is_empty() {
-            vec![]
-        } else {
-            vec![path]
+        match super::workspace::prompt_repo_path(
+            "Enter a repo path to include (blank to skip)",
+            true,
+        )? {
+            Some(path) => vec![path],
+            None => vec![],
         }
     } else {
         let selections = MultiSelect::new()

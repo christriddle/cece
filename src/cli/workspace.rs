@@ -1,11 +1,118 @@
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use comfy_table::{Cell, Color};
-use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
+use dialoguer::{Completion, Confirm, FuzzySelect, Input, MultiSelect};
 use std::collections::HashMap;
 
 use super::styled_table;
 use crate::{cece_dir, db::agent, db::config, db::repo, db::template, db::workspace, git, open_db};
+
+/// Expand `~` at the start of a path to the user's home directory.
+fn expand_tilde(path: &str) -> String {
+    if path == "~" || path.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return path.replacen('~', &home.to_string_lossy(), 1);
+        }
+    }
+    path.to_string()
+}
+
+/// Filesystem path completer for dialoguer Input prompts.
+/// Supports tilde expansion and tab-completes directory/file names.
+struct PathCompleter;
+
+impl Completion for PathCompleter {
+    fn get(&self, input: &str) -> Option<String> {
+        let expanded = expand_tilde(input);
+        let path = std::path::Path::new(&expanded);
+
+        // Determine the directory to list and the prefix to match.
+        let (dir, prefix) = if expanded.ends_with('/') || expanded.is_empty() {
+            (std::path::Path::new(&expanded).to_path_buf(), String::new())
+        } else {
+            let parent = path.parent().unwrap_or(std::path::Path::new("."));
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            (parent.to_path_buf(), file_name)
+        };
+
+        let entries = std::fs::read_dir(&dir).ok()?;
+        let mut matches: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+            .map(|e| {
+                let mut full = dir.join(e.file_name()).to_string_lossy().to_string();
+                if e.path().is_dir() {
+                    full.push('/');
+                }
+                // Convert back to tilde form if the input used ~.
+                if input.starts_with('~') {
+                    if let Some(home) = dirs::home_dir() {
+                        let home_str = home.to_string_lossy().to_string();
+                        if full.starts_with(&home_str) {
+                            return full.replacen(&home_str, "~", 1);
+                        }
+                    }
+                }
+                full
+            })
+            .collect();
+
+        matches.sort();
+
+        if matches.len() == 1 {
+            Some(matches.remove(0))
+        } else {
+            // Find common prefix among matches.
+            if matches.is_empty() {
+                return None;
+            }
+            let first = &matches[0];
+            let common_len = first
+                .char_indices()
+                .take_while(|(i, c)| {
+                    matches.iter().all(|m| {
+                        m.get(*i..*i + c.len_utf8()) == Some(&first[*i..*i + c.len_utf8()])
+                    })
+                })
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
+            let common = &first[..common_len];
+            if common.len() > input.len() {
+                Some(common.to_string())
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Prompt for a repo path with tab completion and tilde expansion.
+/// Returns the expanded, validated path. Returns None if input is empty and allow_empty is true.
+pub(crate) fn prompt_repo_path(prompt: &str, allow_empty: bool) -> Result<Option<String>> {
+    let completer = PathCompleter;
+    let mut input = Input::new();
+    input = input
+        .with_prompt(prompt)
+        .completion_with(&completer)
+        .allow_empty(allow_empty);
+    let raw: String = input.interact_text()?;
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let expanded = expand_tilde(raw.trim_end_matches('/'));
+    let path = std::path::Path::new(&expanded);
+    if !path.exists() {
+        anyhow::bail!("path does not exist: {}", expanded);
+    }
+    if !path.join(".git").exists() && !path.join("HEAD").exists() {
+        anyhow::bail!("not a git repository: {}", expanded);
+    }
+    Ok(Some(expanded))
+}
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommands {
@@ -109,10 +216,9 @@ fn create(
     if repo_paths.is_empty() {
         let known = repo::list(&db)?;
         if known.is_empty() {
-            let path: String = Input::new()
-                .with_prompt("Enter a repo path")
-                .interact_text()?;
-            repo_paths.push(path);
+            if let Some(path) = prompt_repo_path("Enter a repo path", false)? {
+                repo_paths.push(path);
+            }
         } else {
             let selections = MultiSelect::new()
                 .with_prompt("Select repos to include (space to toggle, enter to confirm)")
@@ -122,16 +228,17 @@ fn create(
                 repo_paths.push(known[i].clone());
             }
             loop {
-                let add_more: String = Input::new()
-                    .with_prompt("Add another repo path (blank to skip)")
-                    .allow_empty(true)
-                    .interact_text()?;
-                if add_more.is_empty() {
-                    break;
+                match prompt_repo_path("Add another repo path (blank to skip)", true)? {
+                    None => break,
+                    Some(path) => repo_paths.push(path),
                 }
-                repo_paths.push(add_more);
             }
         }
+    }
+
+    // Expand tilde in --repos paths too.
+    for p in &mut repo_paths {
+        *p = expand_tilde(p);
     }
 
     if repo_paths.is_empty() {
@@ -822,10 +929,9 @@ fn add_repo_cmd(
             .collect();
 
         if available.is_empty() {
-            let path: String = Input::new()
-                .with_prompt("Enter a repo path")
-                .interact_text()?;
-            repo_paths.push(path);
+            if let Some(path) = prompt_repo_path("Enter a repo path", false)? {
+                repo_paths.push(path);
+            }
         } else {
             let selections = MultiSelect::new()
                 .with_prompt("Select repos to add (space to toggle, enter to confirm)")
@@ -836,15 +942,16 @@ fn add_repo_cmd(
             }
         }
         loop {
-            let add_more: String = Input::new()
-                .with_prompt("Add another repo path (blank to skip)")
-                .allow_empty(true)
-                .interact_text()?;
-            if add_more.is_empty() {
-                break;
+            match prompt_repo_path("Add another repo path (blank to skip)", true)? {
+                None => break,
+                Some(path) => repo_paths.push(path),
             }
-            repo_paths.push(add_more);
         }
+    }
+
+    // Expand tilde in --repos paths too.
+    for p in &mut repo_paths {
+        *p = expand_tilde(p);
     }
 
     // Filter out repos already in the workspace.
