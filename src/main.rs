@@ -19,11 +19,38 @@ fn main() -> Result<()> {
         Commands::Hook(cmd) => {
             cece::cli::hook::handle_hook(cmd);
         }
-        Commands::Completions { shell } => {
+        Commands::Complete(cmd) => handle_complete(cmd)?,
+        Commands::Completions { shell } => handle_completions(shell),
+    }
+    Ok(())
+}
+
+fn handle_completions(shell: clap_complete::Shell) {
+    use clap_complete::Shell;
+    match shell {
+        Shell::Zsh => print!("{}", include_str!("completions/cece.zsh")),
+        _ => {
             use clap::CommandFactory;
             use clap_complete::generate;
             let mut cmd = Cli::command();
             generate(shell, &mut cmd, "cece", &mut std::io::stdout());
+        }
+    }
+}
+
+fn handle_complete(cmd: cece::cli::CompleteCommands) -> Result<()> {
+    let db = open_db()?;
+    match cmd {
+        cece::cli::CompleteCommands::Workspaces => {
+            for ws in cece::db::workspace::list(&db)? {
+                println!("{}", ws.name);
+            }
+        }
+        cece::cli::CompleteCommands::Agents { workspace } => {
+            let ws = cece::db::workspace::get_by_name(&db, &workspace)?;
+            for a in cece::db::agent::list(&db, ws.id)? {
+                println!("{}", a.name);
+            }
         }
     }
     Ok(())

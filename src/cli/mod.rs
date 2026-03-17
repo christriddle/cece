@@ -79,9 +79,25 @@ pub enum Commands {
     /// Internal hooks called by Claude Code
     #[command(subcommand, hide = true)]
     Hook(hook::HookCommands),
+    /// Output completion values for shell scripts
+    #[command(subcommand, name = "_complete", hide = true)]
+    Complete(CompleteCommands),
     /// Generate shell completions
     Completions {
         #[arg(value_enum)]
         shell: Shell,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CompleteCommands {
+    /// Output workspace names, one per line
+    #[command(name = "workspaces")]
+    Workspaces,
+    /// Output agent names for a workspace, one per line
+    #[command(name = "agents")]
+    Agents {
+        /// Workspace name
+        workspace: String,
     },
 }
