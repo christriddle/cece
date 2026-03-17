@@ -27,6 +27,12 @@ Each workspace is a named collection of Git worktrees (one per repo) and Claude 
 cargo install --git https://github.com/christriddle/cece
 ```
 
+To update to the latest version:
+
+```bash
+cargo install --git https://github.com/christriddle/cece --force
+```
+
 Or build from source:
 
 ```bash

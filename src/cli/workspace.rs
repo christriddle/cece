@@ -376,13 +376,26 @@ fn pick_branch_for_subsequent_repo(
 
     if items[selection] == same_label {
         // Replicate the first repo's branch target for this repo.
+        // If the first branch was new with a start point, resolve the start point
+        // for *this* repo's default branch (it may differ from the first repo's).
         Ok(match first_branch {
             git::BranchTarget::New {
                 name, start_point, ..
-            } => git::BranchTarget::New {
-                name: name.clone(),
-                start_point: start_point.clone(),
-            },
+            } => {
+                let resolved_start_point = if start_point.is_some() {
+                    // The first repo used "from main" — do the same for this repo,
+                    // using this repo's own default branch.
+                    eprintln!("Fetching latest {} from origin...", default_branch);
+                    git::fetch_origin(repo_path)?;
+                    Some(format!("origin/{}", default_branch))
+                } else {
+                    None
+                };
+                git::BranchTarget::New {
+                    name: name.clone(),
+                    start_point: resolved_start_point,
+                }
+            }
             git::BranchTarget::Existing(name) => git::BranchTarget::Existing(name.clone()),
         })
     } else if items[selection] == new_from_main {
