@@ -312,6 +312,25 @@ pub fn delete_branch(repo_path: &Path, branch: &str) -> Result<()> {
     Ok(())
 }
 
+/// Extract placeholder names from a branch template (e.g. `{initials}-{ticket}` → `["initials", "ticket"]`).
+/// Preserves order of first occurrence. Duplicates are included only once.
+pub fn extract_template_placeholders(template: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        if let Some(end) = rest[start..].find('}') {
+            let name = &rest[start + 1..start + end];
+            if !name.is_empty() && !result.contains(&name.to_string()) {
+                result.push(name.to_string());
+            }
+            rest = &rest[start + end + 1..];
+        } else {
+            break;
+        }
+    }
+    result
+}
+
 /// Expand a branch name template, replacing `{key}` placeholders with values from `vars`.
 pub fn expand_branch_template(template: &str, vars: &HashMap<&str, &str>) -> String {
     let mut result = template.to_string();
@@ -348,5 +367,29 @@ mod tests {
         let vars = HashMap::new();
         let result = expand_branch_template("{initials}-{ticket}", &vars);
         assert_eq!(result, "{initials}-{ticket}");
+    }
+
+    #[test]
+    fn test_extract_template_placeholders() {
+        let result = extract_template_placeholders("{initials}-{ticket}-{desc}");
+        assert_eq!(result, vec!["initials", "ticket", "desc"]);
+    }
+
+    #[test]
+    fn test_extract_custom_placeholders() {
+        let result = extract_template_placeholders("{monkey}-{banana}");
+        assert_eq!(result, vec!["monkey", "banana"]);
+    }
+
+    #[test]
+    fn test_extract_no_placeholders() {
+        let result = extract_template_placeholders("static-branch");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_deduplicates() {
+        let result = extract_template_placeholders("{a}-{b}-{a}");
+        assert_eq!(result, vec!["a", "b"]);
     }
 }

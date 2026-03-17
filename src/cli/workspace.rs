@@ -610,6 +610,8 @@ fn pick_branch_interactive(
 }
 
 /// Prompt the user to name a new branch using the configured template.
+/// Dynamically extracts `{placeholder}` variables from the template and prompts for each.
+/// The `initials` variable is remembered across sessions.
 fn prompt_new_branch(db: &crate::db::Database, template_override: Option<&str>) -> Result<String> {
     let template = match template_override {
         Some(t) => t.to_string(),
@@ -621,28 +623,36 @@ fn prompt_new_branch(db: &crate::db::Database, template_override: Option<&str>) 
         return Ok(template);
     }
 
-    let saved_initials = config::get(db, "initials")?.unwrap_or_default();
-    let mut initials_prompt = Input::new().with_prompt("Your initials");
-    if !saved_initials.is_empty() {
-        initials_prompt = initials_prompt.default(saved_initials.clone());
-    }
-    let initials: String = initials_prompt.interact_text()?;
-    if initials != saved_initials {
-        config::set(db, "initials", &initials)?;
-    }
+    // Extract placeholder names from the template.
+    let placeholders: Vec<String> = git::extract_template_placeholders(&template);
 
-    let ticket: String = Input::new()
-        .with_prompt("Ticket number")
-        .allow_empty(true)
-        .interact_text()?;
-    let desc: String = Input::new()
-        .with_prompt("Short description")
-        .interact_text()?;
+    let mut values: Vec<String> = Vec::new();
+    for name in &placeholders {
+        if name == "initials" {
+            // Special case: remember initials across sessions.
+            let saved = config::get(db, "initials")?.unwrap_or_default();
+            let mut prompt = Input::new().with_prompt("Your initials");
+            if !saved.is_empty() {
+                prompt = prompt.default(saved.clone());
+            }
+            let val: String = prompt.interact_text()?;
+            if val != saved {
+                config::set(db, "initials", &val)?;
+            }
+            values.push(val);
+        } else {
+            let val: String = Input::new()
+                .with_prompt(name.as_str())
+                .allow_empty(true)
+                .interact_text()?;
+            values.push(val);
+        }
+    }
 
     let mut vars = HashMap::new();
-    vars.insert("initials", initials.as_str());
-    vars.insert("ticket", ticket.as_str());
-    vars.insert("desc", desc.as_str());
+    for (name, val) in placeholders.iter().zip(values.iter()) {
+        vars.insert(name.as_str(), val.as_str());
+    }
     Ok(git::expand_branch_template(&template, &vars))
 }
 

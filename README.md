@@ -49,7 +49,14 @@ cargo build --release
 ### Shell completions
 
 ```bash
-# zsh
+# zsh (oh-my-zsh)
+mkdir -p ~/.oh-my-zsh/completions
+cece completions zsh > ~/.oh-my-zsh/completions/_cece
+# then restart your shell or run: exec zsh
+
+# zsh (without oh-my-zsh) — add ~/.zfunc to fpath in .zshrc first:
+#   fpath=(~/.zfunc $fpath); autoload -Uz compinit && compinit
+mkdir -p ~/.zfunc
 cece completions zsh > ~/.zfunc/_cece
 
 # bash
