@@ -94,6 +94,16 @@ pub fn create_workspace(name: &str) -> Result<String> {
         .context("workspace.create returned no workspace_id")
 }
 
+/// Rename a Cmux workspace.
+pub fn rename_workspace(cmux_id: &str, title: &str) -> Result<()> {
+    send_request(
+        "workspace.rename",
+        json!({"workspace_id": cmux_id, "title": title}),
+    )
+    .context("workspace.rename failed")?;
+    Ok(())
+}
+
 /// Switch the active Cmux workspace using its stored cmux workspace ID.
 pub fn select_workspace(cmux_id: &str) -> Result<()> {
     send_request("workspace.select", json!({"workspace_id": cmux_id}))

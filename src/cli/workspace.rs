@@ -303,6 +303,7 @@ fn create(
     let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
         let cmux_id = crate::cmux::create_workspace(name)?;
+        crate::cmux::rename_workspace(&cmux_id, name)?;
         workspace::set_cmux_id(&db, ws_id, &cmux_id)?;
         let start_dir = if repo_branches.len() == 1 {
             let repo_name = std::path::Path::new(&repo_branches[0].path)
@@ -1142,6 +1143,7 @@ pub(crate) fn ensure_cmux_workspace(
         }
     }
     let new_id = crate::cmux::create_workspace(name)?;
+    crate::cmux::rename_workspace(&new_id, name)?;
     workspace::set_cmux_id(db, ws.id, &new_id)?;
     Ok(new_id)
 }
