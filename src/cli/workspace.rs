@@ -4,7 +4,7 @@ use comfy_table::{Cell, Table};
 use dialoguer::{Confirm, FuzzySelect, Input, MultiSelect};
 use std::collections::HashMap;
 
-use crate::{cece_dir, db::config, db::repo, db::workspace, git, open_db};
+use crate::{cece_dir, db::agent, db::config, db::repo, db::workspace, git, open_db};
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommands {
@@ -24,6 +24,11 @@ pub enum WorkspaceCommands {
     Delete { name: String },
     /// Switch to a workspace (prints path, or uses Cmux if configured)
     Switch { name: String },
+    /// Show details of a specific workspace
+    Info {
+        /// Workspace name. Inferred from current directory if omitted.
+        name: Option<String>,
+    },
     /// Add repos to an existing workspace
     AddRepo {
         /// Workspace name. Inferred from current directory if omitted.
@@ -56,6 +61,7 @@ pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
         WorkspaceCommands::List => list(),
         WorkspaceCommands::Delete { name } => delete(&name),
         WorkspaceCommands::Switch { name } => switch(&name),
+        WorkspaceCommands::Info { name } => info(name),
         WorkspaceCommands::AddRepo {
             workspace,
             repos,
@@ -209,6 +215,80 @@ fn list() -> Result<()> {
         ]);
     }
     println!("{table}");
+    Ok(())
+}
+
+fn info(name_arg: Option<String>) -> Result<()> {
+    let db = open_db()?;
+
+    let ws_name = match name_arg {
+        Some(name) => name,
+        None => {
+            let cwd = std::env::current_dir().context("cannot determine current directory")?;
+            workspace::find_by_worktree(&db, &cwd)?
+                .map(|ws| ws.name)
+                .context("cannot infer workspace from current directory — provide a name")?
+        }
+    };
+
+    let ws = workspace::get_by_name(&db, &ws_name)?;
+    let repos = workspace::get_repos(&db, ws.id)?;
+    let agents = agent::list(&db, ws.id)?;
+
+    let ws_dir = cece_dir()?.join("workspaces").join(&ws_name);
+
+    println!("Workspace: {}", ws.name);
+    println!("Created:   {}", &ws.created_at[..10]);
+    println!("Path:      {}", ws_dir.display());
+    if let Some(cmux_id) = &ws.cmux_workspace_id {
+        println!("Cmux ID:   {}", cmux_id);
+    }
+    println!();
+
+    // Repos table
+    println!("Repos:");
+    if repos.is_empty() {
+        println!("  (none)");
+    } else {
+        let mut table = Table::new();
+        table.set_header(["Repo", "Branch", "New?", "Worktree Path"]);
+        for r in &repos {
+            let repo_name = std::path::Path::new(&r.repo_path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            table.add_row([
+                Cell::new(&repo_name),
+                Cell::new(&r.branch),
+                Cell::new(if r.branch_new { "yes" } else { "no" }),
+                Cell::new(&r.worktree_path),
+            ]);
+        }
+        println!("{table}");
+    }
+
+    // Agents table
+    println!("Agents:");
+    if agents.is_empty() {
+        println!("  (none)");
+    } else {
+        let mut table = Table::new();
+        table.set_header(["Agent", "Session", "Last Request"]);
+        for a in &agents {
+            table.add_row([
+                Cell::new(&a.name),
+                Cell::new(a.claude_session_id.as_deref().unwrap_or("—")),
+                Cell::new(
+                    a.last_request
+                        .as_deref()
+                        .map(|s| if s.len() > 60 { &s[..60] } else { s })
+                        .unwrap_or("—"),
+                ),
+            ]);
+        }
+        println!("{table}");
+    }
+
     Ok(())
 }
 
