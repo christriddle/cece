@@ -10,6 +10,7 @@ Each workspace is a named collection of Git worktrees (one per repo) and Claude 
 - **Branch templates** — configure a naming convention once (`{initials}-{ticket}-{desc}`), fill in the blanks at creation time
 - **Per-repo branches** — each repo in a workspace can use a different branch, with "new from main" (fetches origin) or "new from current" options
 - **Agents** — attach Claude Code agents to a workspace, track their session and last activity
+- **Agent input tracking** — see which agents are waiting for your input with `cece check`, jump to one with a single keypress
 - **Status dashboard** — see all workspaces, repos, and agent activity at a glance
 - **Workspace templates** — save repo sets and branch patterns as reusable named templates, use them with `--template`
 - **Workspace CLAUDE.md** — auto-generated instructions for Claude Code agents explaining the repo layout, worktree mechanics, and plans directory
@@ -121,12 +122,14 @@ cece ws create my-feature \
 cece ws create my-feature \
   --template feature-ticket        # use a saved template for repos + branch pattern
 cece ws create my-feature \
+  --branch-template "{ticket}-{desc}"  # one-shot branch template (no saved template needed)
+cece ws create my-feature \
   --no-settings                    # skip generating .claude/settings.json
 
 cece ws info my-feature            # show workspace details (repos, branches, agents)
 cece ws list                       # list all workspaces
 cece ws switch my-feature          # cd to workspace dir, or switch Cmux workspace
-cece ws add-repo --workspace my-feature  # add repos to an existing workspace
+cece ws add-repo --workspace my-feature  # add repos to an existing workspace (supports --branch-template)
 cece ws remove-repo --workspace my-feature  # remove a repo from a workspace
 cece ws delete my-feature          # remove worktrees and DB record
 ```
@@ -140,6 +143,12 @@ cece agent switch my-agent --workspace my-feature   # focus Cmux tab
 cece agent logs my-agent --workspace my-feature     # show recent session history
 cece agent watch my-agent --workspace my-feature    # block until agent goes idle (30 min timeout)
 cece agent delete my-agent --workspace my-feature   # remove agent record
+```
+
+### Check
+
+```bash
+cece check   # show agents waiting for your input across all workspaces, switch to one
 ```
 
 ### Templates
@@ -171,7 +180,7 @@ cece status   # show all workspaces, their repos, agents, and last activity
 - Each workspace repo is a [Git worktree](https://git-scm.com/docs/git-worktree) checked out to `~/.cece/workspaces/<workspace>/<repo>/`
 - Each workspace gets a `CLAUDE.md` describing the repo layout and a `plans/` directory for working documents
 - Each workspace gets `.claude/settings.json` with permissive tool permissions for agents (disable with `--no-settings`)
-- Agent activity is tracked via Claude Code hooks (SessionStart, UserPromptSubmit, Stop)
+- Agent activity is tracked via Claude Code hooks (SessionStart, UserPromptSubmit, Stop); the Stop hook marks an agent as waiting for input, cleared when the next prompt is submitted
 - Cmux integration works via the `cmux` CLI (`cmux select-workspace`, `cmux new-tab`, `cmux select-tab`)
 
 ## License
