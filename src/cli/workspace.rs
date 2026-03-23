@@ -128,6 +128,9 @@ pub enum WorkspaceCommands {
         /// Use a saved workspace template for repos and branch pattern
         #[arg(long)]
         template: Option<String>,
+        /// Branch name template for this workspace only (e.g. "{ticket}-{desc}")
+        #[arg(long)]
+        branch_template: Option<String>,
         /// Skip generating .claude/settings.json with permissive tool permissions
         #[arg(long)]
         no_settings: bool,
@@ -172,8 +175,9 @@ pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
             repos,
             branch,
             template,
+            branch_template,
             no_settings,
-        } => create(&name, repos, branch, template, no_settings),
+        } => create(&name, repos, branch, template, branch_template, no_settings),
         WorkspaceCommands::List => list(),
         WorkspaceCommands::Delete { name } => delete(&name),
         WorkspaceCommands::Switch { name } => switch(&name),
@@ -198,9 +202,14 @@ fn create(
     mut repo_paths: Vec<String>,
     branch_override: Option<String>,
     template_name: Option<String>,
+    branch_template: Option<String>,
     no_settings: bool,
 ) -> Result<()> {
     let db = open_db()?;
+
+    if template_name.is_some() && branch_template.is_some() {
+        anyhow::bail!("cannot use --template and --branch-template together");
+    }
 
     let template_branch = if let Some(ref tpl_name) = template_name {
         let tpl = template::get_by_name(&db, tpl_name)?;
@@ -209,7 +218,7 @@ fn create(
         }
         Some(tpl.branch_template)
     } else {
-        None
+        branch_template
     };
 
     // Gather repos interactively if not provided
@@ -1203,4 +1212,24 @@ fn switch(name: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_branch_template_and_template_conflict_message() {
+        let template_name: Option<String> = Some("my-template".to_string());
+        let branch_template: Option<String> = Some("{ticket}".to_string());
+        let result: anyhow::Result<()> = (|| {
+            if template_name.is_some() && branch_template.is_some() {
+                anyhow::bail!("cannot use --template and --branch-template together");
+            }
+            Ok(())
+        })();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cannot use --template and --branch-template together"));
+    }
 }
