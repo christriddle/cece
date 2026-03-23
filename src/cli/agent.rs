@@ -159,34 +159,38 @@ fn delete(name: &str, workspace_arg: Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn switch(name: &str, workspace_arg: Option<String>) -> Result<()> {
-    let db = open_db()?;
-    let workspace_name = resolve_workspace(&db, workspace_arg)?;
-    let ws = workspace::get_by_name(&db, &workspace_name)?;
-    let a = agent::get_by_name(&db, name, ws.id)?;
-
-    let cmux_enabled = config::get(&db, "cmux_enabled")?.as_deref() == Some("true");
+/// Focus an already-resolved agent's Cmux surface, or print its working dir.
+/// Used by both `cece agent switch` and `cece check`.
+pub(crate) fn switch_to_agent(
+    db: &crate::db::Database,
+    a: &crate::db::agent::Agent,
+    workspace_name: &str,
+) -> Result<()> {
+    let cmux_enabled = crate::db::config::get(db, "cmux_enabled")?.as_deref() == Some("true");
     if cmux_enabled {
         let surface_id = a.cmux_surface_id.as_deref().with_context(|| {
-            format!("agent '{name}' has no cmux surface — was it created with cmux enabled?")
+            format!(
+                "agent '{}' has no cmux surface — was it created with cmux enabled?",
+                a.name
+            )
         })?;
 
-        // Try to focus the existing surface. If it's gone, recreate it and resume the session.
         match crate::cmux::select_agent_tab(surface_id) {
             Ok(()) => {}
             Err(e) if format!("{e:#}").contains("not_found") => {
                 eprintln!("Surface no longer exists, reopening agent...");
-                let ws_dir = crate::cece_dir()?.join("workspaces").join(&workspace_name);
-                let repos = workspace::get_repos(&db, ws.id)?;
+                let ws = crate::db::workspace::get_by_name(db, workspace_name)?;
+                let ws_dir = crate::cece_dir()?.join("workspaces").join(workspace_name);
+                let repos = crate::db::workspace::get_repos(db, ws.id)?;
                 let ws_start_dir = if repos.len() == 1 {
                     std::path::PathBuf::from(&repos[0].worktree_path)
                 } else {
                     ws_dir
                 };
                 let cmux_id = crate::cli::workspace::ensure_cmux_workspace(
-                    &db,
+                    db,
                     &ws,
-                    &workspace_name,
+                    workspace_name,
                     &ws_start_dir,
                 )?;
                 let cc_surface = ws.cmux_surface_id.as_deref().with_context(|| {
@@ -195,21 +199,34 @@ fn switch(name: &str, workspace_arg: Option<String>) -> Result<()> {
                 let new_surface_id = crate::cmux::new_agent_tab(
                     &cmux_id,
                     cc_surface,
-                    name,
+                    &a.name,
                     a.id,
                     std::path::Path::new(&a.working_dir),
                     a.claude_session_id.as_deref(),
                 )?;
-                agent::update_cmux_surface(&db, a.id, &new_surface_id, a.last_request.as_deref())?;
+                crate::db::agent::update_cmux_surface(
+                    db,
+                    a.id,
+                    &new_surface_id,
+                    a.last_request.as_deref(),
+                )?;
             }
             Err(e) => return Err(e),
         }
-        println!("Switched to agent '{}' in Cmux.", name);
+        println!("Switched to agent '{}' in Cmux.", a.name);
     } else {
         println!("{}", a.working_dir);
         eprintln!("(Tip: cd to that directory and run `claude --continue`)");
     }
     Ok(())
+}
+
+fn switch(name: &str, workspace_arg: Option<String>) -> Result<()> {
+    let db = open_db()?;
+    let workspace_name = resolve_workspace(&db, workspace_arg)?;
+    let ws = workspace::get_by_name(&db, &workspace_name)?;
+    let a = agent::get_by_name(&db, name, ws.id)?;
+    switch_to_agent(&db, &a, &workspace_name)
 }
 
 fn logs(name: &str, workspace_arg: Option<String>) -> Result<()> {
