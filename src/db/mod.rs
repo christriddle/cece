@@ -47,6 +47,9 @@ impl Database {
         let _ = self.conn.execute_batch(
             "ALTER TABLE workspace_repos ADD COLUMN branch_new INTEGER NOT NULL DEFAULT 1;",
         );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE agents ADD COLUMN waiting_for_input INTEGER NOT NULL DEFAULT 0;",
+        );
         Ok(())
     }
 

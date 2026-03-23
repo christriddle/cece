@@ -15,6 +15,7 @@ pub struct Agent {
     pub last_request: Option<String>,
     pub last_response: Option<String>,
     pub created_at: String,
+    pub waiting_for_input: bool,
 }
 
 pub fn create(db: &Database, name: &str, workspace_id: i64, working_dir: &str) -> Result<i64> {
@@ -27,7 +28,7 @@ pub fn create(db: &Database, name: &str, workspace_id: i64, working_dir: &str) -
 
 pub fn get_by_id(db: &Database, id: i64) -> Result<Option<Agent>> {
     let mut stmt = db.conn().prepare(
-        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response
+        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response, waiting_for_input
          FROM agents WHERE id = ?1",
     )?;
     let result = stmt.query_row([id], |r| {
@@ -41,6 +42,7 @@ pub fn get_by_id(db: &Database, id: i64) -> Result<Option<Agent>> {
             created_at: r.get(6)?,
             claude_session_id: r.get(7)?,
             last_response: r.get(8)?,
+            waiting_for_input: r.get::<_, i64>(9)? != 0,
         })
     });
     match result {
@@ -52,7 +54,7 @@ pub fn get_by_id(db: &Database, id: i64) -> Result<Option<Agent>> {
 
 pub fn get_by_name(db: &Database, name: &str, workspace_id: i64) -> Result<Agent> {
     let mut stmt = db.conn().prepare(
-        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response
+        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response, waiting_for_input
          FROM agents WHERE name = ?1 AND workspace_id = ?2",
     )?;
     stmt.query_row((name, workspace_id), |r| {
@@ -66,6 +68,7 @@ pub fn get_by_name(db: &Database, name: &str, workspace_id: i64) -> Result<Agent
             created_at: r.get(6)?,
             claude_session_id: r.get(7)?,
             last_response: r.get(8)?,
+            waiting_for_input: r.get::<_, i64>(9)? != 0,
         })
     })
     .map_err(|e| match e {
@@ -76,7 +79,7 @@ pub fn get_by_name(db: &Database, name: &str, workspace_id: i64) -> Result<Agent
 
 pub fn list(db: &Database, workspace_id: i64) -> Result<Vec<Agent>> {
     let mut stmt = db.conn().prepare(
-        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response
+        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response, waiting_for_input
          FROM agents WHERE workspace_id = ?1 ORDER BY name",
     )?;
     let rows = stmt.query_map([workspace_id], |r| {
@@ -90,6 +93,7 @@ pub fn list(db: &Database, workspace_id: i64) -> Result<Vec<Agent>> {
             created_at: r.get(6)?,
             claude_session_id: r.get(7)?,
             last_response: r.get(8)?,
+            waiting_for_input: r.get::<_, i64>(9)? != 0,
         })
     })?;
     rows.map(|r| r.map_err(Into::into)).collect()
@@ -98,7 +102,7 @@ pub fn list(db: &Database, workspace_id: i64) -> Result<Vec<Agent>> {
 /// Find an agent by its stored Claude Code session ID.
 pub fn find_by_claude_session_id(db: &Database, session_id: &str) -> Result<Option<Agent>> {
     let mut stmt = db.conn().prepare(
-        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response
+        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response, waiting_for_input
          FROM agents WHERE claude_session_id = ?1 LIMIT 1",
     )?;
     let result = stmt.query_row([session_id], |r| {
@@ -112,6 +116,7 @@ pub fn find_by_claude_session_id(db: &Database, session_id: &str) -> Result<Opti
             created_at: r.get(6)?,
             claude_session_id: r.get(7)?,
             last_response: r.get(8)?,
+            waiting_for_input: r.get::<_, i64>(9)? != 0,
         })
     });
     match result {
@@ -124,7 +129,7 @@ pub fn find_by_claude_session_id(db: &Database, session_id: &str) -> Result<Opti
 /// Find an agent by exact working directory path. Returns `None` if no agent matches.
 pub fn find_by_working_dir(db: &Database, working_dir: &str) -> Result<Option<Agent>> {
     let mut stmt = db.conn().prepare(
-        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response
+        "SELECT id, name, workspace_id, working_dir, session_id, last_request, created_at, claude_session_id, last_response, waiting_for_input
          FROM agents WHERE working_dir = ?1 LIMIT 1",
     )?;
     let result = stmt.query_row([working_dir], |r| {
@@ -138,6 +143,7 @@ pub fn find_by_working_dir(db: &Database, working_dir: &str) -> Result<Option<Ag
             created_at: r.get(6)?,
             claude_session_id: r.get(7)?,
             last_response: r.get(8)?,
+            waiting_for_input: r.get::<_, i64>(9)? != 0,
         })
     });
     match result {
@@ -253,5 +259,13 @@ mod tests {
         update_claude_session(&db, id, "abc123def456").unwrap();
         let agent = get_by_name(&db, "a1", ws_id).unwrap();
         assert_eq!(agent.claude_session_id, Some("abc123def456".to_string()));
+    }
+
+    #[test]
+    fn test_waiting_for_input_defaults_false() {
+        let (db, ws_id) = setup();
+        let id = create(&db, "a1", ws_id, "/cece/ws").unwrap();
+        let agent = get_by_id(&db, id).unwrap().unwrap();
+        assert!(!agent.waiting_for_input);
     }
 }
