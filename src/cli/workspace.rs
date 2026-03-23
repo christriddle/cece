@@ -157,6 +157,9 @@ pub enum WorkspaceCommands {
         /// Branch name override (skips template expansion)
         #[arg(long)]
         branch: Option<String>,
+        /// Branch name template for this add-repo operation only (e.g. "{ticket}-{desc}")
+        #[arg(long)]
+        branch_template: Option<String>,
     },
     /// Remove a repo from an existing workspace
     RemoveRepo {
@@ -186,7 +189,8 @@ pub fn handle_ws(cmd: WorkspaceCommands) -> Result<()> {
             workspace,
             repos,
             branch,
-        } => add_repo_cmd(workspace, repos, branch),
+            branch_template,
+        } => add_repo_cmd(workspace, repos, branch, branch_template),
         WorkspaceCommands::RemoveRepo { workspace, repo } => remove_repo_cmd(workspace, repo),
     }
 }
@@ -921,6 +925,7 @@ fn add_repo_cmd(
     workspace_arg: Option<String>,
     mut repo_paths: Vec<String>,
     branch_override: Option<String>,
+    branch_template: Option<String>,
 ) -> Result<()> {
     let db = open_db()?;
 
@@ -989,7 +994,7 @@ fn add_repo_cmd(
     }
 
     // Resolve branches per-repo.
-    let repo_branches = resolve_branches_per_repo(&db, &repo_paths, branch_override, None)?;
+    let repo_branches = resolve_branches_per_repo(&db, &repo_paths, branch_override, branch_template.as_deref())?;
 
     for rb in &repo_branches {
         let repo_path = std::path::Path::new(&rb.path);
