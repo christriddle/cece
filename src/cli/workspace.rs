@@ -994,7 +994,12 @@ fn add_repo_cmd(
     }
 
     // Resolve branches per-repo.
-    let repo_branches = resolve_branches_per_repo(&db, &repo_paths, branch_override, branch_template.as_deref())?;
+    let repo_branches = resolve_branches_per_repo(
+        &db,
+        &repo_paths,
+        branch_override,
+        branch_template.as_deref(),
+    )?;
 
     for rb in &repo_branches {
         let repo_path = std::path::Path::new(&rb.path);

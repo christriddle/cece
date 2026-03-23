@@ -15,10 +15,7 @@ pub fn handle_check() -> Result<()> {
     let labels: Vec<String> = waiting
         .iter()
         .map(|(a, ws_name)| {
-            let snippet = a
-                .last_request
-                .as_deref()
-                .unwrap_or("(no prompt recorded)");
+            let snippet = a.last_request.as_deref().unwrap_or("(no prompt recorded)");
             let snippet = if snippet.len() > 60 {
                 &snippet[..60]
             } else {
