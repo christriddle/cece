@@ -11,7 +11,8 @@ use crate::{db::agent, db::config, db::workspace, open_db};
 pub enum AgentCommands {
     /// Create a new agent in the current workspace
     Create {
-        name: String,
+        /// Agent name (defaults to agent1, agent2, … if omitted)
+        name: Option<String>,
         /// Workspace name (inferred from cwd if omitted)
         #[arg(long)]
         workspace: Option<String>,
@@ -61,7 +62,7 @@ pub fn handle_agent(cmd: AgentCommands) -> Result<()> {
             name,
             workspace,
             dir,
-        } => create(&name, workspace, dir),
+        } => create(name, workspace, dir),
         AgentCommands::List { workspace } => list(workspace),
         AgentCommands::Delete { name, workspace } => delete(&name, workspace),
         AgentCommands::Switch { name, workspace } => switch(&name, workspace),
@@ -81,14 +82,31 @@ fn resolve_workspace(db: &crate::db::Database, explicit: Option<String>) -> Resu
         .context("cannot infer workspace from current directory — use --workspace")
 }
 
-fn create(name: &str, workspace_arg: Option<String>, dir_override: Option<PathBuf>) -> Result<()> {
+fn create(
+    name: Option<String>,
+    workspace_arg: Option<String>,
+    dir_override: Option<PathBuf>,
+) -> Result<()> {
     let db = open_db()?;
     let workspace_name = resolve_workspace(&db, workspace_arg)?;
     let ws = workspace::get_by_name(&db, &workspace_name)?;
     let ws_dir = crate::cece_dir()?.join("workspaces").join(&workspace_name);
     let working_dir = dir_override.unwrap_or_else(|| ws_dir.clone());
 
-    let id = agent::create(&db, name, ws.id, &working_dir.to_string_lossy())?;
+    let name = match name {
+        Some(n) => n,
+        None => {
+            let existing = agent::list(&db, ws.id)?;
+            let existing_names: std::collections::HashSet<&str> =
+                existing.iter().map(|a| a.name.as_str()).collect();
+            (1..)
+                .map(|i| format!("agent{i}"))
+                .find(|n| !existing_names.contains(n.as_str()))
+                .expect("infinite iterator always finds a free name")
+        }
+    };
+
+    let id = agent::create(&db, &name, ws.id, &working_dir.to_string_lossy())?;
     println!(
         "Agent '{}' created in workspace '{}'.",
         name, workspace_name
@@ -108,7 +126,7 @@ fn create(name: &str, workspace_arg: Option<String>, dir_override: Option<PathBu
             format!("workspace '{workspace_name}' has no command-center surface — try re-creating it with cmux enabled")
         })?;
         let new_surface_id =
-            crate::cmux::new_agent_tab(&cmux_id, surface_id, name, id, &working_dir, None)?;
+            crate::cmux::new_agent_tab(&cmux_id, surface_id, &name, id, &working_dir, None)?;
         agent::update_cmux_surface(&db, id, &new_surface_id, None)?;
         println!("Opened in Cmux tab.");
     } else {
