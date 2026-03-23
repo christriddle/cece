@@ -205,6 +205,47 @@ pub fn update_last_response(db: &Database, id: i64, response: &str) -> Result<()
     Ok(())
 }
 
+/// Set or clear the waiting-for-input flag for an agent.
+pub fn set_waiting_for_input(db: &Database, id: i64, waiting: bool) -> Result<()> {
+    db.conn().execute(
+        "UPDATE agents SET waiting_for_input = ?1 WHERE id = ?2",
+        (waiting as i64, id),
+    )?;
+    Ok(())
+}
+
+/// Return all agents (across all workspaces) that are waiting for user input,
+/// paired with their workspace name.
+pub fn list_waiting(db: &Database) -> Result<Vec<(Agent, String)>> {
+    let mut stmt = db.conn().prepare(
+        "SELECT a.id, a.name, a.workspace_id, a.working_dir, a.session_id,
+                a.last_request, a.created_at, a.claude_session_id, a.last_response,
+                a.waiting_for_input, w.name
+         FROM agents a
+         JOIN workspaces w ON w.id = a.workspace_id
+         WHERE a.waiting_for_input = 1
+         ORDER BY w.name, a.name",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            Agent {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                workspace_id: r.get(2)?,
+                working_dir: r.get(3)?,
+                cmux_surface_id: r.get(4)?,
+                last_request: r.get(5)?,
+                created_at: r.get(6)?,
+                claude_session_id: r.get(7)?,
+                last_response: r.get(8)?,
+                waiting_for_input: r.get::<_, i64>(9)? != 0,
+            },
+            r.get::<_, String>(10)?,
+        ))
+    })?;
+    rows.map(|r| r.map_err(Into::into)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,5 +308,37 @@ mod tests {
         let id = create(&db, "a1", ws_id, "/cece/ws").unwrap();
         let agent = get_by_id(&db, id).unwrap().unwrap();
         assert!(!agent.waiting_for_input);
+    }
+
+    #[test]
+    fn test_set_waiting_for_input() {
+        let (db, ws_id) = setup();
+        let id = create(&db, "a1", ws_id, "/cece/ws").unwrap();
+        set_waiting_for_input(&db, id, true).unwrap();
+        let agent = get_by_id(&db, id).unwrap().unwrap();
+        assert!(agent.waiting_for_input);
+
+        set_waiting_for_input(&db, id, false).unwrap();
+        let agent = get_by_id(&db, id).unwrap().unwrap();
+        assert!(!agent.waiting_for_input);
+    }
+
+    #[test]
+    fn test_list_waiting() {
+        let db = Database::open_in_memory().unwrap();
+        let ws_id = workspace::create(&db, "ws").unwrap();
+        let id1 = create(&db, "a1", ws_id, "/cece/ws").unwrap();
+        let _id2 = create(&db, "a2", ws_id, "/cece/ws").unwrap();
+
+        set_waiting_for_input(&db, id1, true).unwrap();
+        // a2 stays false
+
+        let waiting = list_waiting(&db).unwrap();
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0].0.name, "a1");
+        assert_eq!(waiting[0].1, "ws");
+
+        set_waiting_for_input(&db, id1, false).unwrap();
+        assert!(list_waiting(&db).unwrap().is_empty());
     }
 }
