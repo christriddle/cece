@@ -16,12 +16,8 @@ pub fn handle_check() -> Result<()> {
         .iter()
         .map(|(a, ws_name)| {
             let snippet = a.last_request.as_deref().unwrap_or("(no prompt recorded)");
-            let snippet = if snippet.len() > 60 {
-                &snippet[..60]
-            } else {
-                snippet
-            };
-            format!("{} / {}  —  {}", ws_name, a.name, snippet)
+            let truncated: String = snippet.chars().take(60).collect();
+            format!("{} / {}  —  {}", ws_name, a.name, truncated)
         })
         .collect();
 
