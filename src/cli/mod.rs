@@ -4,6 +4,7 @@ use comfy_table::presets::NOTHING;
 use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 
 pub mod agent;
+pub mod check;
 pub mod hook;
 pub mod init;
 pub mod list;
@@ -56,6 +57,8 @@ pub enum Commands {
     List,
     /// Show status of all workspaces and agents
     Status,
+    /// Show agents waiting for your input and switch to one
+    Check,
     /// Open a worktree in IntelliJ IDEA
     Idea {
         /// Workspace name. Inferred from current directory if omitted.

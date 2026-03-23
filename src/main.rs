@@ -12,6 +12,7 @@ fn main() -> Result<()> {
         Commands::Template(cmd) => cece::cli::template::handle_template(cmd)?,
         Commands::List => cece::cli::list::handle_list()?,
         Commands::Status => cece::cli::status::handle_status()?,
+        Commands::Check => cece::cli::check::handle_check()?,
         Commands::Idea { workspace } => open_editor("idea", workspace)?,
         Commands::Zed { workspace } => open_editor("zed", workspace)?,
         Commands::Code { workspace } => open_editor("code", workspace)?,
