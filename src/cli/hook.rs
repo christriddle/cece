@@ -76,6 +76,7 @@ fn session_start(payload: &serde_json::Value, db: &crate::db::Database) -> anyho
     if agent.claude_session_id.as_deref() != Some(session_id) {
         crate::db::agent::update_claude_session(db, agent.id, session_id)?;
     }
+    crate::db::agent::set_waiting_for_input(db, agent.id, false)?;
     Ok(())
 }
 
@@ -87,6 +88,7 @@ fn user_prompt_submit(payload: &serde_json::Value, db: &crate::db::Database) -> 
         return Ok(());
     };
     crate::db::agent::update_last_request(db, agent.id, &clip(prompt))?;
+    crate::db::agent::set_waiting_for_input(db, agent.id, false)?;
     Ok(())
 }
 
@@ -98,8 +100,10 @@ fn stop(payload: &serde_json::Value, db: &crate::db::Database) -> anyhow::Result
     };
 
     // last_assistant_message may be null or absent in some stop scenarios (e.g. Ctrl+C).
+    // Only mark as waiting when Claude actually finished responding (not on a hard kill).
     if let Some(message) = payload["last_assistant_message"].as_str() {
         crate::db::agent::update_last_response(db, agent.id, &clip(message))?;
+        crate::db::agent::set_waiting_for_input(db, agent.id, true)?;
     }
     Ok(())
 }
