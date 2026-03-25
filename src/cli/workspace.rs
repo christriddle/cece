@@ -536,9 +536,19 @@ fn resolve_branch_for_repo(
                 if git::branch_exists(repo_path, b) {
                     git::BranchTarget::Existing(b.clone())
                 } else {
+                    let default_branch = git::detect_default_branch(repo_path)
+                        .unwrap_or_else(|_| "main".to_string());
+                    eprintln!("Fetching latest {} from origin...", default_branch);
+                    let start_point = match git::fetch_origin(repo_path) {
+                        Ok(()) => Some(format!("origin/{}", default_branch)),
+                        Err(e) => {
+                            eprintln!("Warning: fetch failed ({e:#}), branching from local HEAD");
+                            None
+                        }
+                    };
                     git::BranchTarget::New {
                         name: b.clone(),
-                        start_point: None,
+                        start_point,
                     }
                 }
             }
